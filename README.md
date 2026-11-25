@@ -1,5 +1,7 @@
 # Tidegate
 
+<p align="center"><img src="docs/demo.gif" alt="A change that makes a support agent promise fixes is blocked by the gate on 5 real inputs; the fix goes live." width="760"></p>
+
 **A worse agent can't go live.** Every deploy replays recent real inputs on the new version and the
 live one, and the new version goes live only if it does no worse. Like a tidegate in a sea wall,
 changes flow one way.

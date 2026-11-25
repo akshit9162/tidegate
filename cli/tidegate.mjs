@@ -154,15 +154,20 @@ export async function deploy(dir, { name, promote = true, wait = true, replay = 
 }
 
 export function gateText(gate, version) {
-  if (gate.status === "replaying") return `Gate: still replaying on ${version} and ${gate.against}.`;
-  const lines = [gate.status === "passed" ? `Gate passed: ${version} did no worse than ${gate.against} on the same inputs.`
-    : `Blocked by the gate: ${version} did worse than ${gate.against} on the same inputs, so ${gate.against} stays live. Promote anyway with: tidegate promote ${version}`];
+  if (gate.status === "replaying") return `Gate: still replaying real inputs on ${version} and the live version (${gate.against}).`;
+  const n = Math.max(0, ...(gate.agents ?? []).map((a) => a.candidate.runs ?? 0));
+  const inputs = n ? `${n} real input${n === 1 ? "" : "s"}` : "the same real inputs";
+  const lines = [gate.status === "passed" ? `Gate passed: no worse than the live version on ${inputs}.`
+    : `Blocked: worse than the live version on ${inputs}. The live version stays.`];
   const pct = (x) => (x == null ? "-" : `${Math.round(x * 100)}%`);
+  const val = (e) => (e?.pass_rate != null ? pct(e.pass_rate) : e?.mean ?? "-");
   for (const a of gate.agents ?? []) {
-    const evals = (side) => Object.entries(side.evals).map(([k, e]) => `${k} ${e.pass_rate != null ? pct(e.pass_rate) : e.mean}`).join(", ");
-    lines.push(`  ${a.agent}: ok ${pct(a.candidate.ok_rate)} vs ${pct(a.live.ok_rate)}${evals(a.candidate) ? `; evals ${evals(a.candidate)} vs ${evals(a.live)}` : ""}`);
+    const parts = Object.entries(a.candidate.evals).map(([k, e]) => `${k} ${val(e)} (live ${val(a.live.evals[k])})`);
+    if (a.candidate.ok_rate !== a.live.ok_rate) parts.unshift(`ok ${pct(a.candidate.ok_rate)} (live ${pct(a.live.ok_rate)})`);
+    lines.push(`  ${a.agent}: ${parts.join(", ") || `ok ${pct(a.candidate.ok_rate)}`}`);
     for (const w of a.worse) lines.push(`    worse: ${w}`);
   }
+  if (gate.status !== "passed") lines.push(`  Ship it anyway: tidegate promote ${version}`);
   return lines.join("\n");
 }
 

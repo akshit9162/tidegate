@@ -159,9 +159,10 @@ and on the live version side by side, then compares them per agent: ok rate, and
 mean. The candidate goes live only if none is worse by more than `tolerance`. Otherwise it stays ready,
 the live version stays, and `tidegate deploy` (and `git push`) report what got worse:
 
-    Blocked by the gate: v2 did worse than v1 on the same inputs, so v1 stays live.
-      draft: ok 100% vs 100%; evals short 0% vs 100%
+    Blocked: worse than the live version on 10 real inputs. The live version stays.
+      draft: short 0% (live 100%)
         worse: eval short passes 0% vs 100% live
+      Ship it anyway: tidegate promote v2
 
 `tidegate promote` still overrides. The verdict is written by one conditional UPDATE, and promotion only
 moves production off the version the gate compared against, so a manual promote in the meantime wins.

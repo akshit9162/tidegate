@@ -332,7 +332,7 @@ const draftSrc = await readFile(path.join(dir, "draft.py"), "utf8");
 await writeFile(path.join(dir, "draft.py"), draftSrc.replace('"v1! " + inp', '"a much longer first draft " + inp'));
 r = await tidegate("deploy", "--name", name);
 assert.equal(r.code, 1, r.out);
-assert.match(r.out, /Blocked by the gate/, r.out);
+assert.match(r.out, /Blocked: worse than the live version/, r.out);
 assert.match(r.out, /eval short passes 0% vs 100% live/, r.out);
 assert.equal((await api(`/api/projects/${name}`)).body.production, gatedLive, "a blocked version does not go live");
 await writeFile(path.join(dir, "draft.py"), draftSrc);
