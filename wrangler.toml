@@ -1,0 +1,23 @@
+name = "tidegate"
+main = "worker/src/index.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+DOMAIN = "localhost"
+SCHEME = "http"
+PORT = "8787"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tidegate"
+database_id = "local"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "tidegate-files"
+
+# Secrets: SECRETS_KEY (base64 of 32 random bytes) and RUNNER_TOKEN.
+# Locally they come from .dev.vars; in production from `wrangler secret put`.

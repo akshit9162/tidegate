@@ -1,0 +1,9 @@
+{
+  "agents": [
+    { "name": "triage", "run": "python3 triage.py", "description": "Sort a support ticket by urgency and team.", "timeout": "5m",
+      "secrets": ["ANTHROPIC_API_KEY"] },
+    { "name": "digest", "run": "python3 digest.py", "description": "Summarise the tickets triaged since the last digest.", "every": "1d", "http": false }
+  ],
+  "state": ["tickets.json"],
+  "checks": ["python3 -m unittest discover -s tests -q"]
+}

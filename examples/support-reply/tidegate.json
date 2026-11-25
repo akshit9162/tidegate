@@ -1,0 +1,9 @@
+{
+  "agents": [
+    { "name": "reply", "run": "python3 reply.py", "description": "Draft a reply to a support email.",
+      "secrets": ["ANTHROPIC_API_KEY"], "review": { "then": "send", "when": "flagged", "min_confidence": 0.7 } },
+    { "name": "send", "run": "python3 send.py", "description": "Send an approved reply.", "http": false }
+  ],
+  "gate": { "replay": 10, "agents": ["reply"] },
+  "checks": ["python3 -m unittest discover -s tests -q"]
+}

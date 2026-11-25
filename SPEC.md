@@ -1,0 +1,290 @@
+# Tidegate: spec
+
+Status: built and tested locally, not deployed. 2026-11-25.
+
+**Tidegate is the Vercel for AI agents that keep getting better, and the software factory for one
+person.** You deploy a folder of agents; every run is recorded; you approve, revise or reject what
+they produce; and those decisions, with the evals the agents report, become a scorecard per version
+and the material for the next version. An improver proposes changes, Tidegate replays real inputs on the
+candidate, and you promote it only if it scores at least as well. No GitHub, Dockerfile or server setup.
+
+## Two pillars (2026-11-25)
+1. **Push any agent, get an endpoint and traces, with zero instrumentation.** Any language or framework
+   (raw SDKs, PydanticAI, CrewAI, LangGraph, a Dockerfile): `tidegate deploy` or `git push tidegate main`
+   gives a live endpoint, and every model call is recorded without a decorator, an SDK or OpenTelemetry.
+   LangSmith, Langfuse and Braintrust are framework-agnostic too, so the claim is "zero instrumentation
+   plus hosting", not "framework-agnostic".
+2. **The loop runs out of the box.** Only risky runs reach a person; a person's fix becomes the agent's
+   example and a labelled case; a version that does worse on real inputs does not go live.
+
+The measure of both: the share of runs approved first time goes up, and review minutes per run go down.
+
+The bet: running agents is a commodity (Trigger.dev, Modal, Inngest and Anthropic's Managed Agents all
+do it). What nobody owns is the loop from "this draft was wrong" to "the next version is provably
+better", run by one person whose attention is the scarce resource (the Warp "software factory" talk
+and Armin Ronacher's "workshop before the factory"). Review decisions are the missing signal: most
+agents have no ground truth, but every approve, revise and reject is a labelled example.
+
+## The loop
+| Step | What Tidegate does | Status |
+|---|---|---|
+| Deploy | Agent setup as code; versions kept forever; rollback and promote are one pointer | Built |
+| Record | Every run's input, output, log, files, problems, and every model call it made (gateway) | Built |
+| Review | `"review": {"then", "when"}`: only flagged runs wait; approve, correct (edit the output), revise with a note, or reject | Built |
+| Measure | Scorecard per version and agent: ok rate, approval rate, approved first time, auto-approved, tokens, evals | Built |
+| Improve | Corrected and approved outputs reach later runs in `$TIDEGATE_EXAMPLES`; an improver agent proposes changes | Built (examples built in; improver per project, e.g. Job Scout's `improve`) |
+| Prove | `"gate"`: every deploy replays real inputs on the candidate and the live version, and goes live only if no worse | Built |
+| Factory | Coding agents (Claude Code on a runner) as workers: issue or failure pattern, PR, checks, review, merge | Next |
+
+The first factory is Job Scout (`job-watch/tailor`): tailor a resume to a job in the person's exact
+LaTeX format, gate it on format and facts, review it, record it, and improve the tailoring rules from
+the review notes.
+
+## The problem
+Vercel made deploying a website one command. Deploying an agent still means putting these together:
+- something that runs for minutes, not seconds. Vercel and Netlify functions stop after seconds
+  to a few minutes, and an agent that researches, scrapes or works through a queue runs longer;
+- a scheduler: GitHub Actions cron, or a server with crontab;
+- an endpoint so other systems can call it, plus a queue so a slow agent does not hold the caller;
+- secrets that the agent can read but that are never committed;
+- somewhere to keep files between runs. Job Scout commits `seen.json` back to its repo;
+- a record of what each run did, and a way to notice when the same thing keeps failing.
+
+Render, Railway and Fly can host this, but you write the Dockerfile and the queue yourself.
+Hosted agent builders (Dify and similar) run their own agent format, not your code.
+
+## Who it's for
+1. Developers who wrote an agent in Python or Node, with any SDK or framework, and want it running.
+2. AI coding agents (Claude Code and others) deploying what they just built, through MCP.
+3. Small teams running agents on a schedule: triage, digests, watchers, research jobs.
+
+## The agent contract
+A project is a folder with `tidegate.json`:
+```json
+{
+  "agents": [
+    { "name": "triage", "run": "python3 triage.py", "description": "Sort a support ticket.",
+      "timeout": "5m", "secrets": ["ANTHROPIC_API_KEY"] },
+    { "name": "digest", "run": "python3 digest.py", "every": "1d", "http": false }
+  ],
+  "state": ["tickets.json"],
+  "checks": ["python3 -m unittest discover -s tests -q"]
+}
+```
+- An agent is any command. Tidegate installs `requirements.txt` or `package.json` dependencies first. A
+  project with a `Dockerfile` runs inside its own image (with `tidegate runner --isolate docker`).
+- **Examples:** `$TIDEGATE_EXAMPLES` is a JSON file `{good: [{input, output, source, note}], avoid: [{input,
+  output, note}]}`: the agent's recent outputs a person approved or corrected (a correction wins over the
+  draft), and those they rejected with their note. The run's own input is left out, so a replay cannot copy
+  its answer. `"examples": N` per agent (default 5, 0 turns it off). Auto-approved runs are not examples:
+  only a person's decision is a label.
+- **Model calls:** `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL` point at Tidegate's gateway (see Traces).
+  `"trace": false` per agent turns it off; a secret of the same name wins.
+- **Signals the agent can give:** `confidence` (0 to 1), `evals`, and `review` (true to ask for a person,
+  false for nothing to review) in its output.
+- **Input and output are files**, so any language works: the run's JSON input is at
+  `$TIDEGATE_INPUT`, and the agent writes its JSON output to `$TIDEGATE_OUTPUT`. Logs are stdout and
+  stderr.
+- **Triggers:** HTTP (on by default), `every` (15m or longer), or by hand with `tidegate invoke`.
+- **State:** files listed in `state` are restored before each run and saved after it, even after
+  a failed run.
+- **Secrets:** the agent receives only the secrets it lists, and never the runner's own credentials.
+- **Limits:** timeout up to 60 minutes; output up to 256 KB; input up to 1 MB.
+
+## Calling an agent
+- `POST https://<project>.tidegate.dev/<agent>` with a JSON body starts a run and returns
+  `{run, status, status_url}` (202).
+- `?wait=N` holds the request up to 30 seconds and returns the output when the run finishes in
+  time (200).
+- `GET /runs/<id>` returns status and output. `GET /` lists the agents.
+- Agents need the project token unless `"public": true`.
+- The same endpoints are served at `https://tidegate.dev/p/<project>/...` for clients that cannot
+  use subdomains, and at `<project>--<version>` for one version.
+
+## What one deploy does
+1. Uploads only files whose hash is new, and stores the version unchanged forever.
+2. Checks it in the Worker: tidegate.json is valid, each agent's entry file was uploaded, and no
+   file contains an API key or private key. Errors name the file and line.
+3. Runs tidegate.json `checks` (the project's tests) on a runner.
+4. Points production at the version once checks pass, or, with `"gate"`, once its replays do no worse than the live version. Rollback points production back.
+
+## A person in the loop
+Most agents that act in the world need someone to say yes first. An agent with
+`"review": {"then": "<agent>"}` in tidegate.json stops after each successful run:
+- the run waits, listed first on the runs page ("Needs you") and in `tidegate reviews`, with its
+  output's `title` and `summary` and any files it wrote to `$TIDEGATE_FILES`, previewed inline;
+- **Approve** runs the `then` agent with `{approved, note, output}` and the files in
+  `$TIDEGATE_INPUT_FILES`;
+- **Revise** reruns the same agent with its original input plus `revise: {note, output}` and the
+  previous files, so the next draft starts from the last one;
+- **Reject** records the note and runs nothing.
+- **Correct** replaces the output with one the person writes (`tidegate correct RUN --output JSON`, or
+  "Edit the output yourself" on the runs page). It is kept as the run's labelled output, handed to later
+  runs as an example, and the `then` agent runs with it (`corrected: true`).
+
+**Only what is flagged.** With `"review": {"when": "flagged", "min_confidence": 0.7}`, a run waits only
+when something flags it: the agent asked (`review: true`), its `confidence` is below the threshold, an
+eval failed, the log has errors, it wrote no output, or it is a revision the person asked for. The rest
+are approved automatically (review `auto`) and the `then` agent runs at once. The flags are shown on the
+review card, so the person sees why. `"when": "always"` (the default) keeps every run waiting.
+
+Each decision is one conditional UPDATE from `waiting`, so a double click queues nothing twice.
+Nothing holds a runner while it waits. There is deliberately no MCP tool to approve, so a coding
+agent cannot sign off its own work.
+
+## Seeing what agents do
+Records every run: trigger, input, output, log, exit code, time, and the error lines in the log.
+The runs page and `tidegate runs` show:
+- **Needs you**, at the top: a failed deploy, missing secrets, agents whose last run failed, and
+  repeated problems. The goal is that a person reads three lines, not a log (Armin Ronacher's
+  point that human attention is the limit).
+- what is running now, with a live log tail;
+- each agent's recent runs as a strip of green and red;
+- **repeated problems:** the same error line across runs, with numbers blanked so "HTTP Error 429"
+  from 3 runs groups into one line.
+
+## Traces without instrumentation
+The runner points each agent's `ANTHROPIC_BASE_URL` at `<tidegate>/gw/<run token>/anthropic` and
+`OPENAI_BASE_URL` at `.../openai/v1`. The official SDKs read these variables, so an agent's model calls go
+through Tidegate with no code change. The gateway forwards each call unchanged with the agent's own key,
+streams the response back as it arrives, and records model, status, input and output tokens and time per
+call, with request and response bodies in R2 (keys are forwarded, never stored). The token is minted per
+run at claim and works only while that run is running. `tidegate trace RUN` lists the calls; the review card
+shows calls and tokens; the scorecard shows median tokens per run.
+
+## The deploy gate
+With `"gate": {"replay": 10, "agents": [...], "tolerance": 0}` in tidegate.json, a deploy that passes its
+checks is not promoted at once. Tidegate reruns each gated agent's last `replay` real inputs on the candidate
+and on the live version side by side, then compares them per agent: ok rate, and each eval's pass rate and
+mean. The candidate goes live only if none is worse by more than `tolerance`. Otherwise it stays ready,
+the live version stays, and `tidegate deploy` (and `git push`) report what got worse:
+
+    Blocked by the gate: v2 did worse than v1 on the same inputs, so v1 stays live.
+      draft: ok 100% vs 100%; evals short 0% vs 100%
+        worse: eval short passes 0% vs 100% live
+
+`tidegate promote` still overrides. The verdict is written by one conditional UPDATE, and promotion only
+moves production off the version the gate compared against, so a manual promote in the meantime wins.
+Gate replays are kept out of the scorecard. Replays are never reviewed and never trigger `then` agents;
+an agent that acts in the world itself should check `TIDEGATE_TRIGGER=replay`.
+
+## Isolation
+`tidegate runner --isolate docker` runs every check and agent run in a container: the project's own
+`Dockerfile` if it has one, else tidegate.json `"image"` or a Python or Node base with the project's
+dependencies installed, built once per content hash. Each run gets only its folder at `/work`, 1 GB of
+memory, one CPU, a process limit and no new privileges. Secrets reach it through an env file outside the
+folder, never the command line. Agents reach Tidegate at `host.docker.internal`.
+
+## The judge
+A decision model answers typed questions about every finished run (its input and output) and returns
+probabilities, not prose. The runner asks it after the run, with an API key the agent never sees.
+
+```json
+"judge": {
+  "provider": "jev",
+  "key": "JUDGE_KEY",
+  "agents": ["reply"],
+  "gate": false,
+  "questions": {
+    "rude": { "type": "noul", "instructions": "Is the reply rude to the customer?", "pass": "no" },
+    "team": { "type": "choice", "instructions": "Which team should own this?",
+              "criteria": { "billing": "money", "tech": "bugs", "spam": "junk" }, "pass": ["billing", "tech"] },
+    "quality": { "type": "score", "instructions": "How well does it answer?",
+                 "criteria": ["wrong", "partly right", "fully right"], "min": 1 }
+  }
+}
+```
+- **Questions** use the shape TypeSafe and Google share: `noul` (yes/no), `choice` (options with
+  descriptions) and `score` (ordered levels). `pass` says which answer is good; a question without one
+  is recorded but not graded.
+- **Providers.** `jev` (TypeSafe, `POST api.typesafe.ai/v1/systemone`, `{state, model, questions}`,
+  model `jev-latest`), `gemini` (Google, `POST generativelanguage.googleapis.com/v1beta/decisions`,
+  `{model, input, questions}`, model `gemini-decision-1`), and `openai`: any OpenAI-compatible server with
+  a `url`, which is how open-weight models run (vLLM, Ollama, Together, Groq). For those Tidegate asks for
+  one letter per question and reads the probabilities from the token logprobs.
+- **What the answers do.** Each graded answer becomes an eval named `judge.<question>`, so a failed one
+  flags the run for review, the scorecard shows its pass rate, and, with `"gate": true`, the deploy gate
+  compares it too. A judge that errors flags the run, so a broken judge never waves a run through.
+- **Whether to trust it.** The scorecard's "judge agrees" column is how often the judge's verdict (no
+  graded answer failed) matched the person's (approved), over runs both decided. Turn on `"gate": true`
+  once it is high over enough runs.
+
+Provider landscape, November 2026 (prices from aggregators; verify before use):
+- **Hosted decision models:** TypeSafe Jev (about $0.04 per million input tokens, output free;
+  `POST api.typesafe.ai/v1/systemone`), Google Gemini Decision 1 (Decisions API, about $0.10 per
+  million input, launched 2026-11-11, multimodal). Microsoft and OpenAI have announced their own.
+- **Open-weight decision models**, served by the customer or on Tidegate's runners: JevK5 (Apache-2.0,
+  Qwen3.5 4B/9B), Kev (0.8B to 27B, Jev-compatible API), Strands Decider (Gemma 4), or AnyJev, which
+  reads answers from any open model's logits. Young projects with self-reported numbers.
+- **Open-weight judges and guards** for specific rubrics: Atla Selene 1 Mini (8B), Prometheus 2,
+  Patronus Glider and Flow Judge (about 3.8B); Qwen3Guard, Granite Guardian, Shieldstral and
+  gpt-oss-safeguard for safety and injection checks.
+Calibration varies: an independent evaluation found open Qwen choice probabilities about as well
+calibrated as Jev's, Gemma overconfident, and open models weaker on yes/no. So the judge is calibrated on
+the person's own review decisions (they are the labels) before its scores can block a deploy.
+
+## How people deploy
+| Path | How | Status |
+|---|---|---|
+| Command line | `tidegate deploy` in the folder | Built |
+| Drag and drop | Drop a folder on tidegate.dev | Built |
+| From an AI chat | MCP tools `deploy`, `invoke`, `status`, `runs` (`tidegate mcp`) | Built |
+| API | `POST /api/deploys`, `PUT /api/blobs/<sha>`, `POST /api/versions/<id>/finalize` | Built |
+| Git | `git remote add tidegate tidegate::<project>`, then `git push tidegate main`: the `git-remote-tidegate` helper deploys the pushed commit (committed files only), gated like any deploy | Built |
+| Pull request previews | A deploy per pull request with its own `<project>--<version>` address | v1 |
+
+## Architecture
+| Part | Choice | Why |
+|---|---|---|
+| API, endpoints, pages | One Cloudflare Worker | Global, cheap, no servers |
+| Files and versions | R2: blobs by sha256, one file list per version | Re-uploads skipped; rollback is a pointer |
+| Metadata, runs, secrets, state | D1 | Runs need conditional updates; KV's eventual consistency would lose state writes |
+| Scheduling | Cron Trigger each minute queues due runs; runners also ask | Works with or without Cloudflare cron |
+| Running agents | `tidegate runner`: claims a queued run, builds the folder, installs dependencies, runs with a clean environment (in a container with `--isolate docker`), heartbeats every 15s, uploads log, state and output | Runs anywhere; a runner that dies is detected after 3 minutes |
+| Model calls | The gateway route in the same Worker; calls in D1, bodies in R2 | No SDK in the agent; one place sees every call |
+| Secrets | AES-GCM with a key held only by the Worker; decrypted only into the claim for that run | Not in files, not in logs |
+| Auth | One token per project, created by its first deploy; a separate runner token | Simple; accounts come later |
+
+A run moves queued → running → ok / failed / timeout. Each step is one conditional UPDATE, so two
+runners never take the same run and a retried request changes nothing.
+
+## Built in the MVP (2026-11-23)
+- Everything marked Built above, plus versions, rollback, checks, secrets, state, schedules,
+  timeouts, the runs page and terminal view.
+- `examples/ticket-triage`: a two-agent project (HTTP triage, daily digest) with tests.
+- `npm test`: 8 unit tests. `node test/e2e.mjs`: 11 end-to-end steps against a running Worker and
+  runner. All pass locally.
+
+## Built 2026-11-25: the two pillars
+- `review.when: "flagged"`, auto-approval, the `correct` decision and the edit box on the runs page.
+- `$TIDEGATE_EXAMPLES` from approved, corrected and rejected runs.
+- The model-call gateway, `tidegate trace`, tokens on the review card and scorecard.
+- The deploy gate.
+- `tidegate runner --isolate docker` and `git push tidegate main`.
+- The judge: Jev, Gemini Decision and any OpenAI-compatible (open-weight) server, as evals, flags and an
+  opt-in gate input, with agreement against the person on the scorecard.
+- `npm test`: 19 unit tests. `node test/e2e.mjs`: 20 steps with the plain runner, plus an isolation step
+  with `E2E_ISOLATE=docker` and a Docker runner. All pass locally.
+
+## Not built yet
+- **Hosting it:** a Cloudflare account, the D1 database and R2 bucket, the domain and wildcard DNS.
+  Needs a go-ahead, as it is a public deploy.
+- **Hosted isolation:** `--isolate docker` isolates runs on a runner you operate. The hosted product needs
+  runners on Cloudflare Containers or microVMs, with network egress rules, before public signups.
+- **Accounts:** GitHub, Google or email sign-in instead of one token per project.
+- **Durable runs:** an agent that suspends mid-run while waiting (for a webhook) and resumes later.
+  Waiting for a person is covered by review, which splits the work into two runs.
+- **Streaming output** over the endpoint, and **cancel**.
+
+## The closed loop: what is left (in order)
+1. **Threshold preview:** "what if `min_confidence` were 0.8" on past runs: how many would have waited,
+   and how many the person then changed. No redeploy.
+2. **Flags grouped by reason**, as repeated problems are today, so ten runs with the same failed eval
+   read as one line.
+3. **Shadow traffic:** a copy of live inputs runs on a candidate for a while, next to the gate's replay.
+4. **The improver opens a pull request** (the Factory row), proven by the gate before a person sees it.
+- Cost per run (tokens times a price table) next to tokens.
+- Replays that stub an agent's side effects, beyond the `TIDEGATE_TRIGGER=replay` convention.
+- Improvement as a Tidegate built-in (`"improve": {"agent", "edit"}`) instead of an agent each project
+  writes; and coding agents that edit code, not only prompts and rules.
+- A run token minted per run instead of the TIDEGATE_TOKEN secret the improver uses today.

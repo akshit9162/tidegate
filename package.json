@@ -1,0 +1,47 @@
+{
+  "name": "tidegate",
+  "version": "0.1.0",
+  "description": "The Vercel for AI agents that keep getting better: deploy, record, review, measure, improve, prove.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:e2e": "wrangler dev --var UPSTREAM_ANTHROPIC:http://127.0.0.1:8799 --var UPSTREAM_OPENAI:http://127.0.0.1:8799",
+    "db": "wrangler d1 execute tidegate --local --file worker/schema.sql",
+    "db:remote": "wrangler d1 execute tidegate --remote --file worker/schema.sql",
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "wrangler": "^4.166.0"
+  },
+  "bin": {
+    "tidegate": "cli/tidegate.mjs",
+    "git-remote-tidegate": "cli/git-remote-tidegate.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "cli/",
+    "worker/",
+    "wrangler.toml",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "ai-agents",
+    "deploy",
+    "evals",
+    "llm",
+    "cloudflare-workers"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akshit9162/tidegate.git"
+  },
+  "homepage": "https://github.com/akshit9162/tidegate#readme",
+  "bugs": {
+    "url": "https://github.com/akshit9162/tidegate/issues"
+  }
+}
