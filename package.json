@@ -27,7 +27,8 @@
     "wrangler.toml",
     "examples/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "!**/__pycache__"
   ],
   "keywords": [
     "ai-agents",
