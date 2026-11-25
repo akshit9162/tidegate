@@ -285,7 +285,7 @@ review flagged runs and they write the next version. These two features remove b
 
 ### 1. The judge takes over review once it has earned it
 ```json
-"review": { "when": "flagged", "then": "send", "autopilot": { "agreement": 0.95, "min_runs": 50 } }
+"review": { "when": "flagged", "then": "send", "judge_review": { "agreement": 0.95, "min_runs": 50 } }
 ```
 - Per agent, the scorecard already measures how often the judge agrees with the person, over runs both
   decided. Once agreement is at least `agreement` over at least `min_runs` of the most recent such runs,
@@ -293,9 +293,9 @@ review flagged runs and they write the next version. These two features remove b
   runs); a run with a failed answer is rejected, with the judge's answers as the note.
 - The person still sees the runs the judge is unsure about: any graded answer whose probability is within
   `margin` (default 0.15) of its threshold, any run the judge errored on, and runs with low `confidence`.
-- Autopilot switches itself off when agreement on the person's spot checks falls below `agreement`: a
-  sample (`spot_check`, default 5%) of autopilot decisions still goes to the person, and their decision
-  counts toward agreement. Every autopilot decision is marked as such on the runs page and the scorecard.
+- Judge review switches itself off when agreement on the person's spot checks falls below `agreement`: a
+  sample (`spot_check`, default 5%) of the judge's decisions still goes to the person, and their decision
+  counts toward agreement. Every judge decision is marked as such on the runs page and the scorecard.
 - Judge decisions never feed `$TIDEGATE_EXAMPLES` as `good` or `avoid`; only the person's do, so the
   judge cannot train the agent on its own mistakes.
 
@@ -317,12 +317,34 @@ review flagged runs and they write the next version. These two features remove b
   (the Factory row), for teams that want a person to merge.
 - Guardrails: replays never trigger `then`; the loop never edits tidegate.json, `checks` or tests (a
   candidate that changes them is rejected); token spend per round is capped (`budget`, in tokens).
+- The model that proposes changes never sees secret values. Secrets in run logs, inputs and outputs are
+  replaced with placeholders (`{{SECRET:ANTHROPIC_API_KEY}}`) before the brief is built, and a candidate
+  that contains a known secret value is rejected.
 - This replaces the per-project improver agent and items 4 and "Improvement as a Tidegate built-in"
   below. Built after launch, as the second launch moment: "deploy once, it improves itself, every change
   proven before it goes live."
 
-Order: autopilot first (it needs only the scorecard and judge that exist), then the improve loop (it needs
-autopilot, or the person, to produce labelled failures to learn from).
+### 3. Tell the person where they already are
+```json
+"notify": { "slack": "SLACK_WEBHOOK", "when": ["review", "blocked", "improved", "judge_off"] }
+```
+- `slack`, `discord` or `telegram` names a secret holding the webhook (or bot token and chat). Tidegate
+  posts one short message per event, batched to at most one per `every` (default 15m) per project:
+  - `review`: "3 runs of reply need you", with links to each run;
+  - `blocked`: the gate's verdict for a blocked deploy, and the `promote` command;
+  - `improved`: the improve loop shipped a change, with its diff and the evals that went up;
+  - `judge_off`: judge review switched itself off, and why.
+- Messages carry run links and numbers, never inputs, outputs or secrets.
+- Without `notify`, flagged runs wait on the runs page, which nobody watches. This matters more for
+  "as little of a person as possible" than any other feature: the person should hear from Tidegate only
+  when it needs them, and never have to check.
+
+### How we will describe it, once built
+"Deploy an agent once. It gets better on its own, every change proven on real inputs, and it only
+messages you when it needs a person." Not before judge review and the improve loop exist.
+
+Order: notifications (small, and useful today), then judge review (it needs only the scorecard and judge that exist), then the improve loop (it needs
+judge review, or the person, to produce labelled failures to learn from).
 
 ## The closed loop: what is left (in order)
 1. **Threshold preview:** "what if `min_confidence` were 0.8" on past runs: how many would have waited,
