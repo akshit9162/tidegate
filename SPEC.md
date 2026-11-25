@@ -280,6 +280,8 @@ runners never take the same run and a retried request changes nothing.
 ## Next: agents that improve with as little of a person as possible
 The goal: deploy an agent once, and it gets better on its own, with every change proven on real inputs
 before it goes live. A person steps in only when the judge is unsure or the loop stops finding gains.
+Not "no humans": a person spends time only where their judgment matters, and reads results rather than
+every run or diff. How much they still review is set by the stakes (`spot_check`, `open_pr`, `digest`).
 Today the gate stops an agent getting worse, but every improvement still starts with a person: they
 review flagged runs and they write the next version. These two features remove both.
 
@@ -320,6 +322,18 @@ review flagged runs and they write the next version. These two features remove b
 - The model that proposes changes never sees secret values. Secrets in run logs, inputs and outputs are
   replaced with placeholders (`{{SECRET:ANTHROPIC_API_KEY}}`) before the brief is built, and a candidate
   that contains a known secret value is rejected.
+- Guarding against slop. The gate checks outcomes, not whether the agent's code stays healthy, and models
+  left alone tend to add rather than tidy (SlopCodeBench, 2026: best model about 16% at evolving a codebase
+  over many changes). So the loop is kept narrow:
+  - By default it edits only prompt and rule files (`.md`, `.txt`, `.json` data listed in `edit`). Listing a
+    code file in `edit` requires `open_pr: true`, so a person merges every code change.
+  - A candidate's diff is capped (`max_diff`, default 40 changed lines). Between two candidates that both
+    pass, the smaller one wins, and one that removes lines wins over one that adds them.
+  - Each change is described in one plain sentence ("added a rule: never promise a fix date"), kept with
+    the version.
+  - Once a month (`digest`, default on), the person gets one message: what the loop changed, which evals
+    moved, and the files as they now stand, so they read the result instead of every diff. If the person
+    has not opened two digests in a row, the loop pauses until they do: it never runs unattended for long.
 - This replaces the per-project improver agent and items 4 and "Improvement as a Tidegate built-in"
   below. Built after launch, as the second launch moment: "deploy once, it improves itself, every change
   proven before it goes live."
@@ -341,7 +355,8 @@ review flagged runs and they write the next version. These two features remove b
 
 ### How we will describe it, once built
 "Deploy an agent once. It gets better on its own, every change proven on real inputs, and it only
-messages you when it needs a person." Not before judge review and the improve loop exist.
+messages you when it needs a person." Frame it as back pressure for agents: the gate and judge raise the quality of
+what comes out before a person sees it. Not before judge review and the improve loop exist.
 
 Order: notifications (small, and useful today), then judge review (it needs only the scorecard and judge that exist), then the improve loop (it needs
 judge review, or the person, to produce labelled failures to learn from).
