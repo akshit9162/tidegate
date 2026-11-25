@@ -3,7 +3,7 @@
 All notable changes to Tidegate. Versions follow [semver](https://semver.org); while it is 0.x, a minor
 version may change the tidegate.json format, and the entry says how to update.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-25)
 
 First public release.
 
