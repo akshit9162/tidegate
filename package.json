@@ -1,7 +1,7 @@
 {
   "name": "tidegate",
-  "version": "0.1.0",
-  "description": "The Vercel for AI agents that keep getting better: deploy, record, review, measure, improve, prove.",
+  "version": "0.1.1",
+  "description": "Deploy AI agents. A worse version can't go live: every deploy replays real inputs and is blocked if it does worse.",
   "scripts": {
     "dev": "wrangler dev",
     "dev:e2e": "wrangler dev --var UPSTREAM_ANTHROPIC:http://127.0.0.1:8799 --var UPSTREAM_OPENAI:http://127.0.0.1:8799",

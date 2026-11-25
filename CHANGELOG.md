@@ -3,6 +3,12 @@
 All notable changes to Tidegate. Versions follow [semver](https://semver.org); while it is 0.x, a minor
 version may change the tidegate.json format, and the entry says how to update.
 
+## 0.1.1 (unreleased)
+
+- The npm page shows the current README: install with `npm install -g tidegate`. `npx tidegate` inside a
+  clone of this repo fails because npx finds the repo's own package.
+- New package description.
+
 ## 0.1.0 (2026-11-25)
 
 First public release.
