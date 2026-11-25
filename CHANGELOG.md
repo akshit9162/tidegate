@@ -8,6 +8,9 @@ version may change the tidegate.json format, and the entry says how to update.
 - The npm page shows the current README: install with `npm install -g tidegate`. `npx tidegate` inside a
   clone of this repo fails because npx finds the repo's own package.
 - New package description.
+- Fixed: a project without `checks` never went live; its versions stayed "ready" with no live version,
+  while `tidegate deploy` printed "Live". `deploy` now says "Ready, but not live" whenever the server did
+  not promote the version.
 
 ## 0.1.0 (2026-11-25)
 

@@ -50,8 +50,9 @@ export async function finalize(env, id) {
   if (config) problems.push(...(await checkVersion(files, config, (p) => blobText(env, files.get(p)))));
   const checks = config && !problems.length ? config.checks : [];
   const status = problems.length ? "failed" : checks.length ? "checking" : "ready";
+  // markReady itself flips the version to ready (and promotes it), so a version with no checks waits as "checking" for it.
   await env.DB.prepare("UPDATE versions SET status = ?, config = ?, problems = ? WHERE id = ?")
-    .bind(status, JSON.stringify(config ?? {}), JSON.stringify(problems), id).run();
+    .bind(status === "ready" ? "checking" : status, JSON.stringify(config ?? {}), JSON.stringify(problems), id).run();
   if (status === "checking") {
     await env.DB.prepare("INSERT INTO runs (id, project, kind, trigger, version, status, queued_at) VALUES (?, ?, 'check', 'deploy', ?, 'queued', ?)")
       .bind(newId(), v.project, id, now()).run();

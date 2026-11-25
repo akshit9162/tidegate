@@ -159,7 +159,8 @@ export async function deploy(dir, { name, promote = true, wait = true, replay = 
     if (r.gate) log(gateText(r.gate, start.version));
     if (r.gate?.status === "blocked") return { project, ...r, status: "blocked" };
   }
-  if (r.status === "ready") log(promote ? `Live: ${r.url}  (or ${r.path_url})\nThis version: ${r.preview_url}` : `Ready (not promoted): ${r.preview_url}`);
+  if (r.status === "ready" && promote && !r.live) log(`Ready, but not live: ${r.preview_url}\nShip it: tidegate promote ${start.version}`);
+  else if (r.status === "ready") log(promote ? `Live: ${r.url}  (or ${r.path_url})\nThis version: ${r.preview_url}` : `Ready (not promoted): ${r.preview_url}`);
   else if (r.status === "checking") log("Still checking after 15 minutes; is a runner running? See `tidegate status`.");
   else log(`Not published. Problems:\n${r.problems.map((p) => `  ${p}`).join("\n")}`);
   if (r.status === "ready" && replay) log(`Replaying ${replay.agent}'s last ${replay.last} inputs on ${start.version}. Compare: tidegate scorecard ${replay.agent}; ship it: tidegate promote ${start.version}`);
