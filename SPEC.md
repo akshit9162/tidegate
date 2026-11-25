@@ -277,6 +277,53 @@ runners never take the same run and a retried request changes nothing.
   Waiting for a person is covered by review, which splits the work into two runs.
 - **Streaming output** over the endpoint, and **cancel**.
 
+## Next: agents that improve with as little of a person as possible
+The goal: deploy an agent once, and it gets better on its own, with every change proven on real inputs
+before it goes live. A person steps in only when the judge is unsure or the loop stops finding gains.
+Today the gate stops an agent getting worse, but every improvement still starts with a person: they
+review flagged runs and they write the next version. These two features remove both.
+
+### 1. The judge takes over review once it has earned it
+```json
+"review": { "when": "flagged", "then": "send", "autopilot": { "agreement": 0.95, "min_runs": 50 } }
+```
+- Per agent, the scorecard already measures how often the judge agrees with the person, over runs both
+  decided. Once agreement is at least `agreement` over at least `min_runs` of the most recent such runs,
+  the judge decides instead of the person: a run with no failed graded answer is approved (and `then`
+  runs); a run with a failed answer is rejected, with the judge's answers as the note.
+- The person still sees the runs the judge is unsure about: any graded answer whose probability is within
+  `margin` (default 0.15) of its threshold, any run the judge errored on, and runs with low `confidence`.
+- Autopilot switches itself off when agreement on the person's spot checks falls below `agreement`: a
+  sample (`spot_check`, default 5%) of autopilot decisions still goes to the person, and their decision
+  counts toward agreement. Every autopilot decision is marked as such on the runs page and the scorecard.
+- Judge decisions never feed `$TIDEGATE_EXAMPLES` as `good` or `avoid`; only the person's do, so the
+  judge cannot train the agent on its own mistakes.
+
+### 2. The improve loop
+```json
+"improve": { "agent": "reply", "every": "1d", "edit": ["prompt.md", "reply.py"], "model": "claude-opus-5-5",
+             "min_new": 10, "max_tries": 3 }
+```
+- On a schedule, once the agent has at least `min_new` new failed, rejected or corrected runs since the
+  last attempt, Tidegate builds a brief: the failures with their inputs and outputs, the person's notes
+  and corrections, the eval and judge results, and the current contents of the `edit` files.
+- A model proposes a change to only the `edit` files. Tidegate deploys it with `--no-promote`, so its
+  checks run, then runs the gate against the live version on recent real inputs, including the failures.
+- If the gate passes and at least one eval or judge pass rate is better, the candidate goes live. If not,
+  the attempt and the gate's report go back to the model, up to `max_tries`; then the loop waits for the
+  next round. Every attempt, its diff and its gate verdict are kept as a version, so a person can read
+  what changed and why, and `tidegate rollback` undoes it.
+- With `"improve": {"open_pr": true}`, the proven change becomes a pull request instead of going live
+  (the Factory row), for teams that want a person to merge.
+- Guardrails: replays never trigger `then`; the loop never edits tidegate.json, `checks` or tests (a
+  candidate that changes them is rejected); token spend per round is capped (`budget`, in tokens).
+- This replaces the per-project improver agent and items 4 and "Improvement as a Tidegate built-in"
+  below. Built after launch, as the second launch moment: "deploy once, it improves itself, every change
+  proven before it goes live."
+
+Order: autopilot first (it needs only the scorecard and judge that exist), then the improve loop (it needs
+autopilot, or the person, to produce labelled failures to learn from).
+
 ## The closed loop: what is left (in order)
 1. **Threshold preview:** "what if `min_confidence` were 0.8" on past runs: how many would have waited,
    and how many the person then changed. No redeploy.
