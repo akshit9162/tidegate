@@ -8,14 +8,20 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { distance } from "../worker/src/config.js";
 import { judgeRun, runState } from "./judge.mjs";
 
 const API = (process.env.TIDEGATE_API ?? "http://localhost:8787").replace(/\/$/, "");
-const HOME = process.env.TIDEGATE_HOME ?? path.join(homedir(), ".tidegate");
+const HOME = process.env.TIDEGATE_HOME || path.join(homedir(), ".tidegate");
 const CREDS = path.join(HOME, "credentials.json");
 const SKIP = new Set([".git", "node_modules", "__pycache__", ".venv", "venv", ".DS_Store", ".tidegate", ".pytest_cache", ".wrangler"]);
 
-class CliError extends Error {}
+class CliError extends Error {
+  constructor(message, code = 1) {
+    super(message);
+    this.code = code;
+  }
+}
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
@@ -23,7 +29,12 @@ async function call(method, route, { token, body, headers = {}, raw = false } = 
   const h = { ...headers };
   if (token) h.authorization = `Bearer ${token}`;
   if (body !== undefined && !(body instanceof Uint8Array) && typeof body !== "string") h["content-type"] = "application/json";
-  const res = await fetch(API + route, { method, headers: h, body: body === undefined ? undefined : body instanceof Uint8Array || typeof body === "string" ? body : JSON.stringify(body) });
+  let res;
+  try {
+    res = await fetch(API + route, { method, headers: h, body: body === undefined ? undefined : body instanceof Uint8Array || typeof body === "string" ? body : JSON.stringify(body) });
+  } catch (e) {
+    throw new CliError(`cannot reach Tidegate at ${API} (${e.cause?.code ?? e.message}).\nStart it in another terminal with: tidegate dev   (or set TIDEGATE_API to your server)`);
+  }
   if (raw) {
     if (!res.ok) throw new CliError(`${method} ${route}: HTTP ${res.status}`);
     return res;
@@ -95,6 +106,8 @@ async function pool(items, n, fn) {
 
 export async function deploy(dir, { name, promote = true, wait = true, replay = null, log = console.log } = {}) {
   dir = path.resolve(dir);
+  if (!(await stat(path.join(dir, "tidegate.json")).catch(() => null)))
+    throw new CliError(`no tidegate.json in ${dir}\nRun deploy in an agent's folder (try examples/support-reply), or create one: {"agents": [{"name": "triage", "run": "python agent.py"}]}`, 2);
   const project = await projectName(dir, name);
   const paths = await walk(dir);
   const files = {}, bySha = {};
@@ -488,8 +501,9 @@ async function dev({ port = 8787, isolate = "none" } = {}) {
     await writeFile(envFile, `SECRETS_KEY=${randomBytes(32).toString("base64")}\nRUNNER_TOKEN=${randomBytes(24).toString("hex")}\n`, { mode: 0o600 });
   }
   const vars = Object.fromEntries((await readFile(envFile, "utf8")).split("\n").filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
-  const local = path.join(ROOT, "node_modules", ".bin", "wrangler");
-  const wrangler = existsSync(local) ? quote(local) : "npx --yes wrangler@4";
+  // wrangler is a dependency; when Tidegate is installed from npm it is hoisted next to it, not under ROOT.
+  const { createRequire } = await import("node:module");
+  const wrangler = `${quote(process.execPath)} ${quote(path.join(path.dirname(createRequire(import.meta.url).resolve("wrangler/package.json")), "bin", "wrangler.js"))}`;
   const state = path.join(dir, "state");
   const quiet = { cwd: ROOT, env: process.env, timeoutSec: 300, onOutput: () => {} };
   const schema = await sh(`${wrangler} d1 execute tidegate --local --persist-to ${quote(state)} --file worker/schema.sql`, quiet);
@@ -608,6 +622,10 @@ Git: git remote add tidegate tidegate::PROJECT, then git push tidegate main depl
 
 Environment: TIDEGATE_API (default http://localhost:8787), TIDEGATE_TOKEN, RUNNER_TOKEN.`;
 
+const COMMANDS = ["deploy", "status", "trace", "rollback", "secret", "invoke", "runs", "reviews", "approve", "correct", "revise", "reject",
+  "scorecard", "replay", "promote", "files", "logs", "dashboard", "dev", "runner", "mcp"];
+const FLAGS = ["--name", "--no-promote", "--replay", "--wait", "--file", "--isolate", "--last", "--note", "--out", "--output", "--port", "--once"];
+
 async function main(argv) {
   const [cmd, ...rest] = argv;
   const flag = (n) => {
@@ -618,6 +636,13 @@ async function main(argv) {
     const i = rest.indexOf(n);
     return i >= 0 && rest.splice(i, 1).length > 0;
   };
+  if (cmd === undefined || ["help", "--help", "-h"].includes(cmd)) return console.log(USAGE);
+  if (!COMMANDS.includes(cmd)) {
+    const near = COMMANDS.find((c) => distance(c, cmd) <= 2);
+    throw new CliError(`unknown command "${cmd}"${near ? `; did you mean "tidegate ${near}"?` : ""}\nRun tidegate --help for the list.`, 2);
+  }
+  const bad = rest.find((a) => a.startsWith("--") && !FLAGS.includes(a));
+  if (bad) throw new CliError(`unknown option ${bad} for tidegate ${cmd}\nRun tidegate --help for the options.`, 2);
   const name = flag("--name");
   const here = async () => projectName(".", name);
   switch (cmd) {
@@ -676,7 +701,8 @@ async function main(argv) {
       if (rest[1] !== undefined) {
         try {
           input = JSON.parse(rest[1]);
-        } catch {
+        } catch (e) {
+          if (/^\s*[[{"]/.test(rest[1])) throw new CliError(`the input is not valid JSON (${e.message}): ${rest[1]}\nQuote it for your shell, e.g. tidegate invoke ${rest[0]} '{"email": "hi"}'`, 2);
           input = rest[1];
         }
       }
@@ -779,14 +805,12 @@ async function main(argv) {
       return runner({ once: has("--once"), isolate: flag("--isolate") ?? process.env.TIDEGATE_ISOLATE ?? "none" });
     case "mcp":
       return mcp();
-    default:
-      console.log(USAGE);
   }
 }
 
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("/tidegate")) {
   main(process.argv.slice(2)).catch((e) => {
-    console.error(e instanceof CliError ? e.message : e.stack);
-    process.exit(1);
+    console.error(e instanceof CliError ? `tidegate: ${e.message}` : e.stack);
+    process.exit(e instanceof CliError ? e.code : 1);
   });
 }

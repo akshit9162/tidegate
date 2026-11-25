@@ -1,0 +1,23 @@
+name: Bug or install problem
+description: Something did not work as the README says
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you ran and what happened
+      description: The commands, and the output you got (remove any keys or tokens).
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, `node --version`, `python3 --version`, and how you run Tidegate (npx, npm link, your own Cloudflare account)
+    validations:
+      required: true

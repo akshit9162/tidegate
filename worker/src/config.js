@@ -12,6 +12,35 @@ export function seconds(text) {
   return m ? Number(m[1]) * UNITS[m[2]] : null;
 }
 
+const KEYS = {
+  project: ["agents", "state", "checks", "gate", "image", "judge"],
+  agent: ["name", "run", "description", "every", "http", "public", "timeout", "secrets", "review", "examples", "trace"],
+  review: ["then", "when", "min_confidence"],
+  gate: ["replay", "agents", "tolerance"],
+  judge: ["provider", "model", "url", "key", "agents", "gate", "questions"],
+  question: ["type", "instructions", "pass", "threshold", "criteria", "min"],
+};
+
+export function distance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+        i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1] ? d[i - 2][j - 2] + 1 : Infinity);
+  return d[a.length][b.length];
+}
+
+// A misspelt key would otherwise be ignored and its setting silently left off. Keys starting with "$" (such as "$schema") are allowed.
+function unknownKeys(obj, kind, where, problems) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return;
+  for (const k of Object.keys(obj)) {
+    if (k.startsWith("$") || KEYS[kind].includes(k)) continue;
+    const near = KEYS[kind].find((x) => distance(x, k.toLowerCase()) <= 2);
+    problems.push(`${where}: unknown key "${k}"; ${near ? `did you mean "${near}"?` : `the keys are ${KEYS[kind].join(", ")}`}`);
+  }
+}
+
 function cleanPath(p) {
   const s = String(p).replace(/^\.\//, "");
   return s && !s.startsWith("/") && !s.split("/").includes("..") ? s : null;
@@ -36,9 +65,14 @@ export function parseConfig(text) {
   }
   const problems = [];
   const agents = [];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { config: null, problems: ['tidegate.json: must be an object, e.g. {"agents": [{"name": "triage", "run": "python agent.py"}]}'] };
+  unknownKeys(raw, "project", "tidegate.json", problems);
   if (!Array.isArray(raw.agents) || !raw.agents.length) problems.push('tidegate.json: "agents" must list at least one agent');
   for (const [i, a] of (raw.agents ?? []).entries()) {
     const where = `tidegate.json: agents[${i}]`;
+    if (!a || typeof a !== "object" || Array.isArray(a)) { problems.push(`${where}: each agent is an object, e.g. {"name": "triage", "run": "python agent.py"}`); continue; }
+    unknownKeys(a, "agent", where, problems);
+    unknownKeys(a.review, "review", `${where}.review`, problems);
     if (!NAME.test(a.name ?? "")) problems.push(`${where}: "name" must be lowercase letters, digits and dashes`);
     if (!a.run) problems.push(`${where}: "run" is the command that starts the agent, e.g. "python agent.py"`);
     let every = null;
@@ -80,6 +114,7 @@ export function parseConfig(text) {
   let gate = null;
   if (raw.gate === true) raw.gate = {};
   if (raw.gate && typeof raw.gate === "object") {
+    unknownKeys(raw.gate, "gate", "tidegate.json: gate", problems);
     gate = { replay: raw.gate.replay ?? 10, agents: raw.gate.agents ?? null, tolerance: raw.gate.tolerance ?? 0 };
     if (!Number.isInteger(gate.replay) || gate.replay < 1 || gate.replay > 50) problems.push('tidegate.json: gate "replay" is how many past inputs to rerun, 1 to 50');
     if (typeof gate.tolerance !== "number" || gate.tolerance < 0 || gate.tolerance > 1) problems.push('tidegate.json: gate "tolerance" is a number from 0 to 1');
@@ -107,6 +142,7 @@ function parseJudge(j, agents, problems) {
     problems.push(`${where} is an object: {"provider": "jev" | "gemini" | "openai", "questions": {...}}`);
     return null;
   }
+  unknownKeys(j, "judge", where, problems);
   const provider = j.provider;
   if (!(provider in JUDGE_PROVIDERS)) problems.push(`${where}: "provider" is jev, gemini or openai (any OpenAI-compatible server, such as vLLM or Ollama)`);
   const model = j.model ?? JUDGE_PROVIDERS[provider] ?? null;
@@ -120,6 +156,7 @@ function parseJudge(j, agents, problems) {
   for (const [name, q] of entries) {
     const at = `${where}: question "${name}"`;
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) problems.push(`${at}: names are letters, digits, - and _`);
+    unknownKeys(q, "question", at, problems);
     if (!q || !q.instructions) { problems.push(`${at}: "instructions" is the question to ask`); continue; }
     if (q.type === "noul") {
       if (![undefined, "yes", "no"].includes(q.pass)) problems.push(`${at}: "pass" is "yes" or "no", the good answer`);

@@ -239,3 +239,10 @@ test("judge answers become evals, flag a run when they fail, and are measured ag
   assert.deepEqual(judgeAgreement([{ judge: pass, review: "approved" }, { judge: fail, review: "rejected" }, { judge: fail, review: "approved" }, { judge: pass, review: "auto" }, { judge: null, review: "approved" }]),
     { n: 3, rate: 0.667 });
 });
+
+test("a misspelt key is a problem, not silently ignored", () => {
+  const { problems } = parseConfig(JSON.stringify({ agents: [{ name: "a", run: "x", reveiw: { then: "b" } }], gaet: true }));
+  assert.ok(problems.some((p) => /agents\[0\]: unknown key "reveiw"; did you mean "review"\?/.test(p)), problems.join("\n"));
+  assert.ok(problems.some((p) => /unknown key "gaet"; did you mean "gate"\?/.test(p)), problems.join("\n"));
+  assert.deepEqual(parseConfig(JSON.stringify({ $schema: "x", agents: [{ name: "a", run: "x" }] })).problems, []);
+});

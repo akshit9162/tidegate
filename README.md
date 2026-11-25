@@ -11,11 +11,30 @@ gets an endpoint, a schedule, secrets and saved files. Every run is recorded wit
 made, with no SDK or tracing code. Only the runs that look risky wait for a person, and a person's fix
 becomes an example the agent sees next time.
 
+## Try it in two minutes
+You need Node 20 or later and Python 3. No account, no API key.
+
 ```sh
-tidegate dev                                       # all of Tidegate on this machine, no account
-cd examples/support-reply && tidegate deploy       # live at http://localhost:8787/p/support-reply
-tidegate invoke reply '{"email": "Where is my order?"}'
+git clone https://github.com/akshit9162/tidegate && cd tidegate/examples/support-reply
+npx tidegate dev               # all of Tidegate on this machine; leave it running
 ```
+In a second terminal, in the same folder:
+```sh
+npx tidegate deploy            # live at http://localhost:8787/p/support-reply
+npx tidegate invoke reply '{"email": "Where is my order?"}'
+npx tidegate invoke reply '{"email": "My parcel is late"}'
+```
+
+### Watch the gate block a worse agent
+Change the reply so it makes a promise the agent's `no_promises` eval forbids, and deploy it:
+```sh
+sed -i.bak 's/get back to you shortly/guarantee a fix by tomorrow/' reply.py
+npx tidegate deploy            # Blocked: worse than the live version on 2 real inputs. The live version stays.
+mv reply.py.bak reply.py
+npx tidegate deploy            # Gate passed: the original goes live again
+```
+The gate reran the real emails you sent on both versions and compared them. Without an API key the
+example answers from a template; set one with `npx tidegate secret set ANTHROPIC_API_KEY` to use a model.
 
 ## The loop
 | Step | What Tidegate does |
@@ -51,6 +70,7 @@ and judge are measured against.
 design, including the judge and the gate, is in [SPEC.md](SPEC.md).
 
 ## Commands
+With `npm install -g tidegate` the command is `tidegate`; otherwise put `npx` in front.
 ```sh
 tidegate deploy [--no-promote] [--replay AGENT]   # upload; live when checks (and the gate) pass
 tidegate invoke AGENT [JSON]                       # run an agent and print its output
@@ -89,7 +109,11 @@ with the same token: `RUNNER_TOKEN=... TIDEGATE_API=https://your-worker tidegate
 ## Tests
 ```sh
 npm test                     # unit tests
+
+# end to end, once: local secrets and tables
+printf 'SECRETS_KEY=%s\nRUNNER_TOKEN=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -hex 24)" > .dev.vars
+npm run db
 npm run dev:e2e              # a Worker pointed at the test's mock model API
-tidegate runner                # in a second terminal (E2E_ISOLATE=docker with --isolate docker)
-node test/e2e.mjs            # end to end against both
+set -a; . ./.dev.vars; set +a; tidegate runner   # second terminal (E2E_ISOLATE=docker with --isolate docker)
+node test/e2e.mjs            # third terminal
 ```
