@@ -1,6 +1,6 @@
 # Tidegate: spec
 
-Status: built and tested locally, not deployed. 2026-11-25.
+Status: built and tested locally, not deployed. 2026-11-25; market, `tidegate new` and pr-steward lessons added 2026-11-26.
 
 **Tidegate is the Vercel for AI agents that keep getting better, and the software factory for one
 person.** You deploy a folder of agents; every run is recorded; you approve, revise or reject what
@@ -24,6 +24,41 @@ do it). What nobody owns is the loop from "this draft was wrong" to "the next ve
 better", run by one person whose attention is the scarce resource (the Warp "software factory" talk
 and Armin Ronacher's "workshop before the factory"). Review decisions are the missing signal: most
 agents have no ground truth, but every approve, revise and reject is a labelled example.
+
+## Where the market is going (2026-11-26)
+Read from public sources in November 2026; several are secondary roundups, so treat the numbers as
+direction, not fact.
+- **Building agents is crowded and consolidating.** The category has split into no-code canvases for
+  operations teams (Zapier Agents, n8n, Make) and code-first frameworks for engineers (Claude Agent SDK,
+  LangGraph, CrewAI), with enterprise suites on top (Copilot Studio, Agentforce, Gemini Enterprise,
+  ServiceNow). OpenAI is reported to be shutting down its visual Agent Builder and its Evals platform on
+  2026-11-30; Relay.app shut in September; Dialpad and Ada agreed to combine on 2026-11-04, one of about
+  eight customer-service AI acquisitions since mid-2025.
+- **Buyers build their own.** G2's 2026 report: 42% of buyers use agent-builder platforms (up), 27% use
+  ready-made agents (down); software-engineering use cases up 77% year on year.
+- **Pricing moves to usage and outcomes** (Zendesk now charges per resolved issue).
+- **Money goes to evals and observability:** Braintrust ($80M Series B, $800M post, Feb 2026), LangSmith
+  ($1.25B valuation), Patronus ($50M, moving toward simulation), seeds for Respan, Galtea, ZeroEval.
+- **The gap:** those tools show what an agent did after the fact. Nobody owns the step that decides
+  whether a change to an agent may ship, which matters most once agents change themselves. Investors also
+  now ask agent startups for production reliability data with categorized failure modes.
+
+**Positioning that follows:** Tidegate is the release gate for agents that improve themselves: every
+change, whether a person's or the agent's own, is replayed on real inputs and ships only if it is no
+worse. A no-code builder on its own would enter the shrinking, crowded half of the market; as a front
+door to the gate (`tidegate new`, below) it joins the half that is growing ("build your own") to the half
+that is funded ("trust it"). For the Show HN (2026-12-08), lead with the gate and use pr-steward (below)
+as the demo: a week of it answering review comments, the rule changes it tried, and the ones the gate
+blocked.
+
+Sources: [G2 2026 AI Agents Insight Report](https://sell.g2.com/g2-2026-ai-agents-insight-report),
+[viktor.com builders comparison](https://viktor.com/blog/best-ai-agent-builders),
+[vybe.build platforms 2026](https://www.vybe.build/blog/best-ai-agent-platforms-2026),
+[AI Business Weekly, November 2026](https://aibusinessweekly.net/p/ai-agent-news),
+[customer-service agents market (Yahoo Finance)](https://finance.yahoo.com/technology/ai/articles/ai-customer-agents-market-forecast-155600162.html),
+[agent-eval startups (The Deep Feed)](https://www.thedeepfeed.ai/posts/2026-06-25-agent-eval-startups-metric-nobody-trusts/),
+[self-improving agent ops (StartupXO)](https://startupxo.com/en/ideas/2026/07/2026-07-01-self-improving-agent-ops/),
+[agent evaluation landscape (Presenc)](https://presenc.ai/research/ai-agent-evaluation-startups-2026).
 
 ## The loop
 | Step | What Tidegate does | Status |
@@ -360,6 +395,64 @@ what comes out before a person sees it. Not before judge review and the improve 
 
 Order: notifications (small, and useful today), then judge review (it needs only the scorecard and judge that exist), then the improve loop (it needs
 judge review, or the person, to produce labelled failures to learn from).
+
+### 4. `tidegate new`: describe an agent, get one that ships through the gate
+```
+tidegate new "answer review comments on my open PRs, fixing what's valid with a failing test first"
+```
+- A front door, not a second product. A coding agent (Claude Code on the runner, the Factory row) writes
+  a normal project: the agent's code, `tidegate.json`, `checks` (unit tests with stubbed side effects),
+  evals the agent reports, and a `rules.md` the improve loop may edit later. The output is readable code
+  in a folder the person owns, not a hidden format: that is the difference from the canvas builders.
+- Before the first deploy it generates sample inputs, runs them as replays (`TIDEGATE_TRIGGER=replay`, no
+  side effects), and shows the person the outputs and evals. The person says yes once; after that the
+  gate, judge review and the improve loop take over.
+- It writes in the patterns pr-steward proved necessary (next section): side effects skipped on replay,
+  hard gates before anything irreversible, `retry` for passing failures, `notify`, a kill switch.
+- Who it is for decides the scope: developers who skip the boilerplate (CLI, readable code) first.
+  Non-developers would need hosted runners, connectors (Gmail, Slack) and a web editor: later, if ever.
+- Test: from one sentence, regenerate something close to pr-steward that passes its end-to-end tests.
+
+## The first unattended agent: pr-steward (2026-11-26)
+`~/projects/pr-steward`, deployed to the local Tidegate. Three agents look after the owner's open pull
+requests with no approval step: `watch` (every 15m) finds new review comments, reviews, CI failures and
+conflicts and sends each to `fix`; `fix` runs headless Claude Code in a checkout, and pushes only if a
+named test fails before and passes after, the diff is at most 80 lines, no protected file is touched, the
+typecheck is no worse, and the push budget allows; `learn` (weekly) labels what happened after each action
+from GitHub (reviewer pushback, CI on the pushed commit, bot withdrawals, merges), proposes a `rules.md`
+change of at most 40 lines that keeps the output contract and the untrusted-input rule, and deploys it
+through the gate. It is the improve loop (item 2) built by hand in one project, and the source of these
+platform gaps, each found by running it:
+- **State races (bug).** The runner uploads every `state` file after every run, changed or not, and the
+  server overwrites. A long `fix` run therefore wrote back an old copy of what `watch` recorded meanwhile,
+  which would have answered the same comment twice. pr-steward keeps state on local disk instead. Fix:
+  upload only files that changed, and refuse a write whose base version is not the current one
+  (compare-and-swap), or scope state per agent.
+- **Host logins under the clean environment.** Runs get `HOME` set to the work folder and no `USER`, so
+  CLIs that find their login through them (Claude Code's keychain entry needs `USER`; `gh`, git
+  credentials) are signed out. Fine for hosted runners; for `tidegate dev` on the person's own machine,
+  offer `"host_login": true` per agent, which passes the real `HOME` and `USER`.
+- **Replays run beside live runs.** The gate replays a candidate and the live version at once, while live
+  runs continue, so an agent with a working folder outside the run (a git checkout) needs one per replay.
+  Replays of event-driven agents also need the world as it was: pr-steward checks out the event's old
+  commit. Document both in the agent contract next to `TIDEGATE_TRIGGER=replay`.
+- **Retry.** A run that fails for a passing reason (usage limit, network) is lost unless the agent
+  retries it; `watch` does, with backoff. Built-in: `"retry": {"max": 6, "backoff": "15m"}` per agent,
+  plus `"retry": true` in the output for failures the agent knows will pass.
+- **Agents calling agents.** `watch` starts `fix` runs over HTTP with the project's deploy token as a
+  secret. A run token scoped to "start runs of this project" would replace it (already listed below).
+- **Outcome labels without a person.** The improve loop as specified learns from review decisions; an
+  agent that acts in the world gets better labels from what the world did next. Let an agent report
+  outcomes for earlier runs (`POST /runs/<id>/outcome {label, signals}`) so the scorecard and the improve
+  loop use them like review decisions.
+- **Notifications.** pr-steward posts macOS notifications and keeps an activity log by hand: evidence
+  for building `notify` (item 3) first.
+- **Gate size.** Five replays per version cost about ten model runs per deploy and are noisy on pass
+  rates; the gate should report its sample size and treat small samples as "not worse" only within a
+  margin.
+- **Isolation.** The agent's tests run as the owner's user, including tests the model wrote; a comment
+  that talked the model into a hostile test reaches everything the account can. `--isolate docker` is the
+  answer, which hosted runners need anyway.
 
 ## The closed loop: what is left (in order)
 1. **Threshold preview:** "what if `min_confidence` were 0.8" on past runs: how many would have waited,
