@@ -5,20 +5,29 @@ version may change the tidegate.json format, and the entry says how to update.
 
 ## 0.1.1 (2026-11-27)
 
+Added:
 - GitHub webhooks start runs: `"on": {"github": {"events": [...], "secret": "NAME"}}` per agent, at
   `/hooks/<project>/github`. Each delivery's `X-Hub-Signature-256` is checked against the named secret, and
   redeliveries are ignored. Runs started this way are real inputs, so the gate replays them.
+  `tidegate status` prints the webhook address.
 - An agent can ask for one later run with `{"follow_up": {"in": "20m", "input": {...}}}` in its output
   (1 minute to 1 day; at most 5 in a row).
-- Fixed: `tidegate dev --port N` started its runner against port 8787 unless `TIDEGATE_API` was also set,
-  and printed a deploy hint that did the same.
+- `examples/review-reply`: drafts a reply to each review comment GitHub sends, waits for your approval,
+  then posts it. Includes signed sample deliveries, so it runs without GitHub.
+- `docs/comparisons.md`: how Tidegate compares with Amp, GitHub's agents, Trigger.dev, LangSmith and
+  Braintrust, with sources.
 
-- The npm page shows the current README: install with `npm install -g tidegate`. `npx tidegate` inside a
-  clone of this repo fails because npx finds the repo's own package.
-- New package description.
-- Fixed: a project without `checks` never went live; its versions stayed "ready" with no live version,
-  while `tidegate deploy` printed "Live". `deploy` now says "Ready, but not live" whenever the server did
-  not promote the version.
+Fixed:
+- A project without `checks` never went live; its versions stayed "ready" with no live version, while
+  `tidegate deploy` printed "Live". `deploy` now says "Ready, but not live" whenever the server did not
+  promote the version.
+- `tidegate dev --port N` started its runner against port 8787 unless `TIDEGATE_API` was also set, and
+  printed a deploy hint that did the same.
+
+Changed:
+- The npm page shows the current README and a new package description. Install with
+  `npm install -g tidegate`; `npx tidegate` inside a clone of this repo fails because npx finds the repo's
+  own package.
 
 ## 0.1.0 (2026-11-25)
 
