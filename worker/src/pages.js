@@ -116,7 +116,7 @@ const params = new URLSearchParams(location.hash.slice(1));
 if (params.get("token")) { localStorage.setItem("tidegate:" + params.get("project"), params.get("token")); history.replaceState(null, "", "#project=" + params.get("project")); }
 $("#project").value = params.get("project") || localStorage.getItem("tidegate:last") || "";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => "&#" + c.charCodeAt(0) + ";");
-const ago = (t, now) => !t ? "" : now - t < 90 ? (now - t) + "s ago" : now - t < 5400 ? Math.round((now - t) / 60) + "m ago" : Math.round((now - t) / 3600) + "h ago";
+const ago = (t, now) => !t ? "" : t > now ? "in " + Math.round((t - now) / 60) + "m" : now - t < 90 ? (now - t) + "s ago" : now - t < 5400 ? Math.round((now - t) / 60) + "m ago" : Math.round((now - t) / 3600) + "h ago";
 const pct = (x) => x == null ? "" : Math.round(x * 100) + "%";
 const dur = (r, now) => r.started_at ? Math.round(((r.ended_at || now) - r.started_at) / 60 * 10) / 10 + " min" : "";
 let timer, reviewKey = "";

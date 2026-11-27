@@ -66,6 +66,13 @@ and judge are measured against.
 - `"review": {"then": "send", "when": "flagged"}` holds risky runs for a person and runs `send` with the
   approved output. Replays never trigger `send`; an agent that acts itself should check
   `TIDEGATE_TRIGGER=replay`.
+- `"on": {"github": {"events": ["pull_request_review.submitted", "check_run"], "secret": "GITHUB_WEBHOOK_SECRET"}}`
+  starts a run for each GitHub webhook delivery of those events, with `{event, action, delivery, payload}`
+  as input. Point the repo's webhook at the `github_webhook_url` that `tidegate status` prints, with content
+  type `application/json` and the same secret (`tidegate secret set GITHUB_WEBHOOK_SECRET`). Deliveries
+  with a wrong signature are refused, and a redelivery starts nothing new.
+- `{"follow_up": {"in": "20m", "input": {...}}}` in the output runs the agent again later, for example to
+  check CI on a commit it pushed. From 1 minute to 1 day ahead, at most 5 in a row; replays never follow up.
 
 `examples/support-reply` uses all of this; `examples/ticket-triage` shows state and schedules. The full
 design, including the judge and the gate, is in [SPEC.md](SPEC.md).

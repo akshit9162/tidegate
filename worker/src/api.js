@@ -13,7 +13,8 @@ const MAX_BLOB = 25 * 1024 * 1024;
 export function urls(env, project, version) {
   const base = (host) => `${env.SCHEME ?? "https"}://${host}.${env.DOMAIN}${env.PORT ? `:${env.PORT}` : ""}`;
   const origin = `${env.SCHEME ?? "https"}://${env.DOMAIN}${env.PORT ? `:${env.PORT}` : ""}`;
-  return { url: base(project), path_url: `${origin}/p/${project}`, preview_url: version ? base(`${project}--${version}`) : undefined };
+  return { url: base(project), path_url: `${origin}/p/${project}`, preview_url: version ? base(`${project}--${version}`) : undefined,
+    github_webhook_url: `${origin}/hooks/${project}/github` };
 }
 
 async function owner(env, request, name) {

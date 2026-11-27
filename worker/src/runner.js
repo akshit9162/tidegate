@@ -1,6 +1,7 @@
 // Work for runners: scheduling agents, handing out runs, and taking back their results.
 // A run moves queued -> running -> ok | failed | timeout, and each move is one conditional UPDATE,
 // so two runners never get the same run and a retried request changes nothing.
+import { seconds } from "./config.js";
 import { settleGates } from "./loop.js";
 import { examplesFor, reviewState, runThen } from "./review.js";
 import { markReady, versionFiles, versionMeta } from "./versions.js";
@@ -10,16 +11,34 @@ const STALE = 180; // a running run with no heartbeat for 3 minutes has lost its
 export const MAX_OUTPUT = 256 * 1024;
 export const MAX_RUN_FILES = 20;
 export const FILE_NAME = /^[\w][\w.-]{0,99}$/;
+export const MAX_FOLLOW_UPS = 5; // in a row, so an agent that always asks for one cannot run forever
 
 function runnerAuth(env, request) {
   if (!env.RUNNER_TOKEN || bearer(request) !== env.RUNNER_TOKEN) throw new HttpError(401, "runner token required");
 }
 
-export async function queueRun(env, { project, agent, version, trigger, input = null, parent = null, inputFiles = null, replayOf = null, gate = null }) {
+export async function queueRun(env, { project, agent, version, trigger, input = null, parent = null, inputFiles = null, replayOf = null, gate = null, at = now() }) {
   const id = newId();
   await env.DB.prepare("INSERT INTO runs (id, project, kind, agent, trigger, version, status, input, queued_at, parent, input_files, replay_of, gate) VALUES (?, ?, 'agent', ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)")
-    .bind(id, project, agent, trigger, version, input == null ? null : JSON.stringify(input), now(), parent, inputFiles ? JSON.stringify(inputFiles) : null, replayOf, gate).run();
+    .bind(id, project, agent, trigger, version, input == null ? null : JSON.stringify(input), at, parent, inputFiles ? JSON.stringify(inputFiles) : null, replayOf, gate).run();
   return id;
+}
+
+/** The output's {"follow_up": {"in": "20m", "input": {...}}}: null, { delay, input }, or { problem }. */
+export function followUp(output) {
+  const f = output?.follow_up;
+  if (f == null || f === false) return null;
+  const delay = f && typeof f === "object" && !Array.isArray(f) ? seconds(f.in ?? "") : null;
+  if (delay == null || delay < 60 || delay > 86400) return { problem: 'the output\'s "follow_up" was ignored: it is {"in": "20m", "input": {...}}, with "in" from 1m to 1d' };
+  return { delay, input: f.input ?? null };
+}
+
+async function queueFollowUp(env, run, { delay, input }, t) {
+  let depth = 0;
+  for (let r = run; r?.trigger === "follow_up" && depth < MAX_FOLLOW_UPS; depth++)
+    r = await env.DB.prepare("SELECT trigger, parent FROM runs WHERE id = ?").bind(r.parent).first();
+  if (depth >= MAX_FOLLOW_UPS) return { problem: `the output's "follow_up" was ignored: ${MAX_FOLLOW_UPS} follow-ups in a row is the limit` };
+  return { id: await queueRun(env, { project: run.project, agent: run.agent, version: run.version, trigger: "follow_up", input, parent: run.id, at: t + delay }) };
 }
 
 export async function schedule(env) {
@@ -49,8 +68,8 @@ export async function schedule(env) {
 async function claim(env) {
   const t = now();
   const run = await env.DB.prepare(
-    "UPDATE runs SET status = 'running', started_at = ?, heartbeat_at = ? WHERE id = (SELECT id FROM runs WHERE status = 'queued' ORDER BY queued_at, id LIMIT 1) AND status = 'queued' RETURNING *",
-  ).bind(t, t).first();
+    "UPDATE runs SET status = 'running', started_at = ?, heartbeat_at = ? WHERE id = (SELECT id FROM runs WHERE status = 'queued' AND queued_at <= ? ORDER BY queued_at, id LIMIT 1) AND status = 'queued' RETURNING *",
+  ).bind(t, t, t).first();
   if (!run) return json({ run: null });
   const { config } = await versionMeta(env, run.version);
   const files = Object.fromEntries(await versionFiles(env, run.version));
@@ -115,6 +134,8 @@ async function done(env, request, id) {
   const kept_output = out && out.length <= MAX_OUTPUT ? out : null;
   const verdict = judge && typeof judge === "object" ? judge : null;
   const { review, flags } = reviewState(agent, run, status, kept_output == null ? null : output, problems, verdict);
+  const follow = run.kind === "agent" && run.trigger !== "replay" && kept_output != null ? followUp(output) : null;
+  if (follow?.problem) problems.push(follow.problem);
   const runFiles = kept.length ? JSON.stringify(Object.fromEntries(kept)) : null;
   const ended = await env.DB.prepare("UPDATE runs SET status = ?, exit_code = ?, ended_at = ?, problems = ?, log_tail = ?, output = ?, files = ?, review = ?, flags = ?, reviewed_at = ?, judge = ? WHERE id = ? AND status = 'running'")
     .bind(status, exit_code, t, JSON.stringify(problems), log.slice(-4000), kept_output, runFiles, review, flags.length ? JSON.stringify(flags) : null,
@@ -137,7 +158,10 @@ async function done(env, request, id) {
     await env.DB.prepare("INSERT INTO state (project, path, blob, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (project, path) DO UPDATE SET blob = excluded.blob, updated_at = excluded.updated_at")
       .bind(run.project, path, sha, t).run();
   }
-  return json({ status });
+  if (!follow?.delay) return json({ status });
+  const next = await queueFollowUp(env, run, follow, t);
+  if (next.problem) await env.DB.prepare("UPDATE runs SET problems = ? WHERE id = ?").bind(JSON.stringify([...problems, next.problem]), id).run();
+  return json({ status, follow_up: next.id ?? null });
 }
 
 async function blob(env, sha) {

@@ -5,6 +5,12 @@ version may change the tidegate.json format, and the entry says how to update.
 
 ## 0.1.1 (unreleased)
 
+- GitHub webhooks start runs: `"on": {"github": {"events": [...], "secret": "NAME"}}` per agent, at
+  `/hooks/<project>/github`. Each delivery's `X-Hub-Signature-256` is checked against the named secret, and
+  redeliveries are ignored. Runs started this way are real inputs, so the gate replays them.
+- An agent can ask for one later run with `{"follow_up": {"in": "20m", "input": {...}}}` in its output
+  (1 minute to 1 day; at most 5 in a row).
+
 - The npm page shows the current README: install with `npm install -g tidegate`. `npx tidegate` inside a
   clone of this repo fails because npx finds the repo's own package.
 - New package description.

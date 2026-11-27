@@ -6,6 +6,7 @@ export const MIN_EVERY = 15 * 60;
 export const MAX_TIMEOUT = 60 * 60;
 const NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const SECRET = /^[A-Z][A-Z0-9_]{0,63}$/;
+const GITHUB_EVENT = /^[a-z_]{1,64}(\.[a-z_]{1,64})?$/;
 
 export function seconds(text) {
   const m = /^(\d+)\s*([smhd])$/.exec(String(text).trim());
@@ -14,7 +15,9 @@ export function seconds(text) {
 
 const KEYS = {
   project: ["agents", "state", "checks", "gate", "image", "judge"],
-  agent: ["name", "run", "description", "every", "http", "public", "timeout", "secrets", "review", "examples", "trace"],
+  agent: ["name", "run", "description", "every", "http", "public", "timeout", "secrets", "review", "examples", "trace", "on"],
+  on: ["github"],
+  github: ["events", "secret"],
   review: ["then", "when", "min_confidence"],
   gate: ["replay", "agents", "tolerance"],
   judge: ["provider", "model", "url", "key", "agents", "gate", "questions"],
@@ -53,6 +56,8 @@ function cleanPath(p) {
  *   something flags it ("flagged"; the rest are approved automatically), and approving runs agent `then`.
  * examples: how many reviewed runs to hand the agent in $TIDEGATE_EXAMPLES (0 turns it off).
  * trace: whether the agent's model calls go through the gateway and are recorded.
+ * on: null, or { github: { events, secret } }: GitHub webhooks signed with the named secret start a run.
+ *   An event is "pull_request_review" or, to narrow it to one action, "pull_request_review.submitted".
  * The project: { agents, state, checks, gate, image }. gate is null or { replay, agents, tolerance }.
  */
 export function parseConfig(text) {
@@ -95,7 +100,7 @@ export function parseConfig(text) {
     const examples = a.examples ?? 5;
     if (!Number.isInteger(examples) || examples < 0 || examples > 20) problems.push(`${where}: "examples" is a whole number from 0 to 20`);
     agents.push({ name: a.name, run: a.run, description: String(a.description ?? ""), every, http: a.http !== false, public: a.public === true, timeout, secrets, review,
-      examples, trace: a.trace !== false });
+      examples, trace: a.trace !== false, on: parseOn(a.on, where, problems) });
   }
   if (new Set(agents.map((a) => a.name)).size !== agents.length) problems.push("tidegate.json: agent names must be unique");
   for (const a of agents) {
@@ -123,6 +128,24 @@ export function parseConfig(text) {
   const image = raw.image == null ? null : String(raw.image);
   const judge = raw.judge == null ? null : parseJudge(raw.judge, agents, problems);
   return { config: { agents, state, checks: (raw.checks ?? []).map(String), gate, image, judge }, problems };
+}
+
+const ON_EXAMPLE = '{"github": {"events": ["pull_request_review"], "secret": "GITHUB_WEBHOOK_SECRET"}}';
+
+function parseOn(on, where, problems) {
+  if (on == null) return null;
+  if (typeof on !== "object" || Array.isArray(on) || !on.github) {
+    problems.push(`${where}: "on" is ${ON_EXAMPLE}`);
+    return null;
+  }
+  unknownKeys(on, "on", `${where}.on`, problems);
+  const g = on.github;
+  unknownKeys(g, "github", `${where}.on.github`, problems);
+  const events = Array.isArray(g?.events) ? g.events : [];
+  if (!events.length) problems.push(`${where}: on.github "events" lists at least one GitHub event, e.g. ["pull_request_review", "check_run.completed"]`);
+  for (const e of events) if (!GITHUB_EVENT.test(e)) problems.push(`${where}: GitHub event ${JSON.stringify(e)} is an event name, optionally with ".action"`);
+  if (!SECRET.test(g?.secret ?? "")) problems.push(`${where}: on.github "secret" names the secret holding the webhook's signing secret, UPPER_CASE`);
+  return { github: { events, secret: g?.secret ?? null } };
 }
 
 export const JUDGE_PROVIDERS = { jev: "jev-latest", gemini: "gemini-decision-1", openai: null };

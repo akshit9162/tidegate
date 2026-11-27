@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { gateway } from "./gateway.js";
+import { githubHook } from "./hooks.js";
 import { invoke } from "./invoke.js";
 import { dashboard, home } from "./pages.js";
 import { runnerApi, schedule } from "./runner.js";
@@ -25,6 +26,8 @@ async function handle(request, env, ctx) {
   }
   const gw = /^\/gw\/([0-9a-f]{48})\/(\w+)(\/.*)$/.exec(path);
   if (gw) return gateway(request, env, ctx, gw[1], gw[2], gw[3]);
+  const hook = /^\/hooks\/([a-z0-9-]{1,32})\/github$/.exec(path);
+  if (hook) return githubHook(request, env, hook[1]);
   if (path.startsWith("/api/runner/")) return runnerApi(request, env, path);
   if (path.startsWith("/api/")) return api(request, env, path);
   if (path === "/") return home(env);

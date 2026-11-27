@@ -30,19 +30,19 @@ CREATE TABLE IF NOT EXISTS runs (
   project TEXT NOT NULL,
   kind TEXT NOT NULL,             -- check | agent
   agent TEXT,
-  trigger TEXT NOT NULL,          -- deploy | schedule | http | manual
+  trigger TEXT NOT NULL,          -- deploy | schedule | http | manual | review | replay | github | follow_up
   version TEXT NOT NULL,
   status TEXT NOT NULL,
   input TEXT,                     -- JSON the run was started with
   output TEXT,                    -- JSON the agent wrote to $TIDEGATE_OUTPUT
-  queued_at INTEGER NOT NULL,
+  queued_at INTEGER NOT NULL,     -- when the run may start; a follow-up's is in the future
   started_at INTEGER,
   heartbeat_at INTEGER,
   ended_at INTEGER,
   exit_code INTEGER,
   problems TEXT,                  -- JSON list of error lines found in the log
   log_tail TEXT,
-  parent TEXT,                    -- the reviewed run whose decision queued this one
+  parent TEXT,                    -- the reviewed run whose decision queued this one, or the run that asked for this follow-up
   files TEXT,                     -- JSON {name: sha256} the agent wrote to $TIDEGATE_FILES
   input_files TEXT,               -- JSON {name: sha256} handed to this run in $TIDEGATE_INPUT_FILES
   review TEXT,                    -- waiting | approved | revised | rejected | corrected | auto

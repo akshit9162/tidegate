@@ -10,7 +10,7 @@ import { queueRun } from "./runner.js";
 import { HttpError } from "./util.js";
 
 const DECIDED = ["approved", "corrected", "revised", "rejected"];
-const SOURCE_TRIGGERS = ["http", "manual", "schedule", "review"];
+const SOURCE_TRIGGERS = ["http", "manual", "schedule", "review", "github"];
 
 /**
  * The run's output with the judge's graded answers added to its evals as judge.<question>, so flags,
