@@ -60,6 +60,52 @@ Sources: [G2 2026 AI Agents Insight Report](https://sell.g2.com/g2-2026-ai-agent
 [self-improving agent ops (StartupXO)](https://startupxo.com/en/ideas/2026/07/2026-07-01-self-improving-agent-ops/),
 [agent evaluation landscape (Presenc)](https://presenc.ai/research/ai-agent-evaluation-startups-2026).
 
+## Amp (ampcode.com), read 2026-11-27
+**What it is.** A coding agent and development environment. Each thread runs in a cloud sandbox (an "orb")
+that keeps going after the laptop closes, or in a "runner" on your own machine (`amp --no-tui`). Orbs
+wake on outside events: a review on a pull request, CI failing on main, a new Linear issue, a plugin
+webhook, or a schedule the thread sets itself. "Ship" commits, rebases, runs the test suite in the orb
+and pushes, or opens a PR ("Push to Branch"), or follows a custom prompt ("Custom Ship"). There is an SDK
+(`@ampcode/sdk`, `execute({prompt, executor: 'orb' | 'runner'})`) and agent-to-agent threads. Pricing: a
+free Hobby tier with unlimited self-hosted orbs and runners, then $20/month with 45,000 orb minutes.
+
+**Does it compete with Tidegate?** Not with the gate. Amp's docs cover no hosting of agents as services,
+no evals or replays, no check that a change to an agent's prompt or rules made it worse, no per-version
+scorecard and no review queue (the nearest thing is a snoozed thread holding a question until a person
+answers). Amp's "Ship" step only runs the repo's tests. Its one eval mention fans out fresh orbs to see
+whether a repo's AGENTS.md is enough, which tests the repo, not an agent. It is aimed at coding work.
+Tidegate is for any agent that runs on its own.
+
+**It does overlap with pr-steward.** An orb that wakes on a PR review or a CI failure and pushes a fix
+covers most of what `watch` + `fix` do, hosted and with no polling. So the Show HN demo must not lead
+with "an agent that answers your review comments": people will say Amp does that. Lead with what Amp
+lacks: the `rules.md` changes `learn` proposed, and the ones the gate blocked on replay. An Amp user could
+put their Amp agent behind the gate. Amp is a possible worker, not a rival: an agent in `tidegate.json`
+can call `amp -x` or the SDK the way pr-steward calls `claude -p`.
+
+**What to take:**
+1. **Wake on events, not only `every`.** Add `"on": {"github": ["pull_request_review", "check_run"]}` per
+   agent: a webhook URL per project that starts a run with the event as input. pr-steward's 15-minute
+   poll becomes a push. Verify GitHub's HMAC signature on every delivery. Amp leaves signature checks
+   to the plugin; Tidegate should not.
+2. **An agent schedules its own follow-up.** Amp threads set their own next wake-up. Let the output say
+   `{"follow_up": {"in": "20m", "input": {...}}}`, so `fix` can check CI on its pushed commit and report the
+   outcome itself (feeding `POST /runs/<id>/outcome`, below) instead of waiting for the weekly `learn`.
+   Limit one pending follow-up per run, and stop after 5 follow-ups in a row.
+3. **A ship policy in plain words.** "Custom Ship" is a prompt of up to 10,000 characters that decides
+   how work lands. A `tidegate new` project could take its `checks` and hard gates the same way, written
+   as sentences and compiled into code the person can read.
+4. **Same runner, two places.** Amp keeps your own machine and its hosted orbs behind one interface.
+   This matches `tidegate dev` plus hosted runners later. Keep that split in the pitch.
+
+**What not to take:** orbs and live preview portals. That is compute, which we said we will not compete
+on (Trigger.dev, Modal, Managed Agents, and now Amp).
+
+Sources: [ampcode.com](https://ampcode.com/), [docs](https://ampcode.com/docs),
+[automations and webhooks](https://ampcode.com/docs/orbs/automations),
+[shipping](https://ampcode.com/docs/orbs/shipping), [SDK](https://ampcode.com/docs/sdk),
+[runners](https://ampcode.com/docs/cli/runners), [pricing](https://ampcode.com/pricing).
+
 ## The loop
 | Step | What Tidegate does | Status |
 |---|---|---|
