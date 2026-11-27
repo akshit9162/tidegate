@@ -1,0 +1,12 @@
+{
+  "action": "created",
+  "comment": {
+    "id": 1002,
+    "body": "Why not reuse the existing cursor helper here?",
+    "path": "src/pager.js",
+    "line": 17,
+    "user": { "login": "a-reviewer", "type": "User" }
+  },
+  "pull_request": { "number": 7, "title": "Page results by 20" },
+  "repository": { "full_name": "you/your-repo" }
+}

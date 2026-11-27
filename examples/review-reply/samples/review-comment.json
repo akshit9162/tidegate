@@ -1,0 +1,12 @@
+{
+  "action": "created",
+  "comment": {
+    "id": 1001,
+    "body": "This drops the last item when the list has an odd length.",
+    "path": "src/pager.js",
+    "line": 42,
+    "user": { "login": "a-reviewer", "type": "User" }
+  },
+  "pull_request": { "number": 7, "title": "Page results by 20" },
+  "repository": { "full_name": "you/your-repo" }
+}

@@ -1,0 +1,12 @@
+{
+  "agents": [
+    { "name": "draft", "run": "python3 draft.py", "description": "Draft a reply to a review comment on one of your pull requests.",
+      "secrets": ["ANTHROPIC_API_KEY"],
+      "on": { "github": { "events": ["pull_request_review_comment.created", "issue_comment.created"], "secret": "GITHUB_WEBHOOK_SECRET" } },
+      "review": { "then": "post", "when": "always" } },
+    { "name": "post", "run": "python3 post.py", "description": "Post an approved reply on GitHub.", "http": false,
+      "secrets": ["GITHUB_TOKEN"] }
+  ],
+  "gate": { "replay": 10, "agents": ["draft"] },
+  "checks": ["python3 -m unittest discover -s tests -q"]
+}

@@ -662,6 +662,7 @@ async function main(argv) {
       const s = await call("GET", `/api/projects/${p}`, { token: await tokenFor(p) });
       console.log(`${s.name}  ${s.url}\nlive: ${s.production ?? "none"}   secrets: ${s.secrets.join(", ") || "none"}`);
       for (const a of s.agents) console.log(`agent ${a.name}: ${a.run}${a.every ? `, every ${a.every / 60}m` : ""}${a.http ? `, POST ${s.url}/${a.name}${a.public ? " (public)" : ""}` : ""}`);
+      if (s.agents.some((a) => a.on?.github)) console.log(`github_webhook_url: ${s.github_webhook_url}`);
       for (const v of s.versions.slice(0, 10)) console.log(`${v.production ? "*" : " "} ${v.id} ${v.status.padEnd(8)}${v.gate ? ` gate ${v.gate.status}` : ""}${v.problems.length ? ` ${v.problems[0]}` : ""}`);
       const gated = s.versions.find((v) => v.gate);
       if (gated) console.log(`\n${gateText(gated.gate, gated.id)}`);
