@@ -2,8 +2,7 @@
 
 Status: built and tested locally, not deployed. 2026-11-25; market, `tidegate new` and pr-steward lessons added 2026-11-26.
 
-**Tidegate is the Vercel for AI agents that keep getting better, and the software factory for one
-person.** You deploy a folder of agents; every run is recorded; you approve, revise or reject what
+**Tidegate is a deploy gate and host for AI agents that keep getting better.** You deploy a folder of agents; every run is recorded; you approve, revise or reject what
 they produce; and those decisions, with the evals the agents report, become a scorecard per version
 and the material for the next version. An improver proposes changes, Tidegate replays real inputs on the
 candidate, and you promote it only if it scores at least as well. No GitHub, Dockerfile or server setup.
@@ -25,127 +24,11 @@ better", run by one person whose attention is the scarce resource (the Warp "sof
 and Armin Ronacher's "workshop before the factory"). Review decisions are the missing signal: most
 agents have no ground truth, but every approve, revise and reject is a labelled example.
 
-## Where the market is going (2026-11-26)
-Read from public sources in November 2026; several are secondary roundups, so treat the numbers as
-direction, not fact.
-- **Building agents is crowded and consolidating.** The category has split into no-code canvases for
-  operations teams (Zapier Agents, n8n, Make) and code-first frameworks for engineers (Claude Agent SDK,
-  LangGraph, CrewAI), with enterprise suites on top (Copilot Studio, Agentforce, Gemini Enterprise,
-  ServiceNow). OpenAI is reported to be shutting down its visual Agent Builder and its Evals platform on
-  2026-11-30; Relay.app shut in September; Dialpad and Ada agreed to combine on 2026-11-04, one of about
-  eight customer-service AI acquisitions since mid-2025.
-- **Buyers build their own.** G2's 2026 report: 42% of buyers use agent-builder platforms (up), 27% use
-  ready-made agents (down); software-engineering use cases up 77% year on year.
-- **Pricing moves to usage and outcomes** (Zendesk now charges per resolved issue).
-- **Money goes to evals and observability:** Braintrust ($80M Series B, $800M post, Feb 2026), LangSmith
-  ($1.25B valuation), Patronus ($50M, moving toward simulation), seeds for Respan, Galtea, ZeroEval.
-- **The gap:** those tools show what an agent did after the fact. Nobody owns the step that decides
-  whether a change to an agent may ship, which matters most once agents change themselves. Investors also
-  now ask agent startups for production reliability data with categorized failure modes.
-
-**Positioning that follows:** Tidegate is the release gate for agents that improve themselves: every
-change, whether a person's or the agent's own, is replayed on real inputs and ships only if it is no
-worse. A no-code builder on its own would enter the shrinking, crowded half of the market; as a front
-door to the gate (`tidegate new`, below) it joins the half that is growing ("build your own") to the half
-that is funded ("trust it"). For the Show HN (2026-12-08), lead with the gate and use pr-steward (below)
-as the demo: a week of it answering review comments, the rule changes it tried, and the ones the gate
-blocked.
-
-Sources: [G2 2026 AI Agents Insight Report](https://sell.g2.com/g2-2026-ai-agents-insight-report),
-[viktor.com builders comparison](https://viktor.com/blog/best-ai-agent-builders),
-[vybe.build platforms 2026](https://www.vybe.build/blog/best-ai-agent-platforms-2026),
-[AI Business Weekly, November 2026](https://aibusinessweekly.net/p/ai-agent-news),
-[customer-service agents market (Yahoo Finance)](https://finance.yahoo.com/technology/ai/articles/ai-customer-agents-market-forecast-155600162.html),
-[agent-eval startups (The Deep Feed)](https://www.thedeepfeed.ai/posts/2026-06-25-agent-eval-startups-metric-nobody-trusts/),
-[self-improving agent ops (StartupXO)](https://startupxo.com/en/ideas/2026/07/2026-07-01-self-improving-agent-ops/),
-[agent evaluation landscape (Presenc)](https://presenc.ai/research/ai-agent-evaluation-startups-2026).
-
-## Amp (ampcode.com), read 2026-11-27
-**What it is.** A coding agent and development environment. Each thread runs in a cloud sandbox (an "orb")
-that keeps going after the laptop closes, or in a "runner" on your own machine (`amp --no-tui`). Orbs
-wake on outside events: a review on a pull request, CI failing on main, a new Linear issue, a plugin
-webhook, or a schedule the thread sets itself. "Ship" commits, rebases, runs the test suite in the orb
-and pushes, or opens a PR ("Push to Branch"), or follows a custom prompt ("Custom Ship"). There is an SDK
-(`@ampcode/sdk`, `execute({prompt, executor: 'orb' | 'runner'})`) and agent-to-agent threads. Pricing: a
-free Hobby tier with unlimited self-hosted orbs and runners, then $20/month with 45,000 orb minutes.
-
-**Does it compete with Tidegate?** Not with the gate. Amp's docs cover no hosting of agents as services,
-no evals or replays, no check that a change to an agent's prompt or rules made it worse, no per-version
-scorecard and no review queue (the nearest thing is a snoozed thread holding a question until a person
-answers). Amp's "Ship" step only runs the repo's tests. Its one eval mention fans out fresh orbs to see
-whether a repo's AGENTS.md is enough, which tests the repo, not an agent. It is aimed at coding work.
-Tidegate is for any agent that runs on its own.
-
-**It does overlap with pr-steward.** An orb that wakes on a PR review or a CI failure and pushes a fix
-covers most of what `watch` + `fix` do, hosted and with no polling. So the Show HN demo must not lead
-with "an agent that answers your review comments": people will say Amp does that. Lead with what Amp
-lacks: the `rules.md` changes `learn` proposed, and the ones the gate blocked on replay. An Amp user could
-put their Amp agent behind the gate. Amp is a possible worker, not a rival: an agent in `tidegate.json`
-can call `amp -x` or the SDK the way pr-steward calls `claude -p`.
-
-**What to take** (1 and 2 built 2026-11-27, 3 is in `tidegate new` below, 4 is in the pitch):
-1. **Wake on events, not only `every`.** `"on": {"github": {"events": ["pull_request_review", "check_run"],
-   "secret": "GITHUB_WEBHOOK_SECRET"}}` per agent: a webhook URL per project that starts a run with the event as input. pr-steward's 15-minute
-   poll becomes a push. Verify GitHub's HMAC signature on every delivery. Amp leaves signature checks
-   to the plugin; Tidegate should not.
-2. **An agent schedules its own follow-up.** Amp threads set their own next wake-up. Let the output say
-   `{"follow_up": {"in": "20m", "input": {...}}}`, so `fix` can check CI on its pushed commit and report the
-   outcome itself (feeding `POST /runs/<id>/outcome`, below) instead of waiting for the weekly `learn`.
-   Limit one pending follow-up per run, and stop after 5 follow-ups in a row.
-3. **A ship policy in plain words.** "Custom Ship" is a prompt of up to 10,000 characters that decides
-   how work lands. A `tidegate new` project could take its `checks` and hard gates the same way, written
-   as sentences and compiled into code the person can read.
-4. **Same runner, two places.** Amp keeps your own machine and its hosted orbs behind one interface.
-   This matches `tidegate dev` plus hosted runners later. Keep that split in the pitch.
-
-**What not to take:** orbs and live preview portals. That is compute, which we said we will not compete
-on (Trigger.dev, Modal, Managed Agents, and now Amp).
-
-Sources: [ampcode.com](https://ampcode.com/), [docs](https://ampcode.com/docs),
-[automations and webhooks](https://ampcode.com/docs/orbs/automations),
-[shipping](https://ampcode.com/docs/orbs/shipping), [SDK](https://ampcode.com/docs/sdk),
-[runners](https://ampcode.com/docs/cli/runners), [pricing](https://ampcode.com/pricing).
-
-## GitHub's agents, read 2026-11-27
-GitHub runs agents inside repos: the Copilot cloud agent (an issue or prompt becomes a PR; since June 2026
-also on schedules and repo events), Agent HQ (Claude and Codex assigned to the same issue, compared side
-by side), Copilot code review (generally available March 2026), and Agentic Workflows (`gh-aw`, Markdown
-compiled to Actions, generally available 2026-10-28, also for non-coding work such as triage and reports).
-Billing is usage-based since 2026-06-01 (Pro $10, Pro+ $39, Business $19/user, Enterprise $39/user a month,
-each including that much in credits).
-
-**Overlap.** Like Amp, they cover running agents on events and schedules, which is where pr-steward sits.
-None replays recorded production inputs on a changed prompt or agent and promotes it only if it does no
-worse: a change to a custom agent's profile or to AGENTS.md goes live through ordinary PR review. No
-per-version scorecard, no review queue outside PRs. The closest are experimental: `gh aw trial` (runs a
-workflow in a scratch repo, `--repeat` for consistency, one chosen issue as context, no bulk replay, no
-promotion) and `gh-aw` A/B experiments with deterministic graders (draft spec v0.2.0). That work is the
-one to watch: it is GitHub heading toward the gate. Our answer is the same as for Amp: their agents can
-run behind Tidegate, and the gate is the part they do not have.
-
-Sources: [cloud agent automations](https://github.blog/changelog/2026-06-02-schedule-and-automate-tasks-with-copilot-cloud-agent/),
-[Agent HQ](https://github.blog/news-insights/company-news/welcome-home-agents/),
-[Agentic Workflows GA](https://github.blog/changelog/2026-10-28-github-agentic-workflows-generally-available),
-[TrialOps](https://github.github.com/gh-aw/experimental/trial-ops/),
-[graders spec](https://github.github.com/gh-aw/specs/graders-specification/),
-[usage-based billing](https://github.blog/changelog/2026/04/27/github-copilot-is-moving-to-usage-based-billing/).
-
-## Trigger.dev, read 2026-11-27
-Open-source durable background jobs in TypeScript, now pitched for AI agents: `chat.agent` (durable
-multi-turn agents), waitpoints for a person's approval, cron and verified webhooks, OTel traces with model
-cost, atomic versions with `deploy --skip-promotion` and `promote`, and `prompts.define()` (prompts
-versioned per deploy, with token, cost and latency per prompt version). Free, then $10 and $50 a month
-plus compute.
-
-**Overlap.** It has every piece of the gate except the decision. `runs.replay(id, {version})` and bulk
-replay rerun past payloads on a chosen version, but nothing compares the outputs. Promotion is by hand
-or automatic, never "only if no worse". No evals, judge, per-version scorecard or review queue. It is the
-nearest neighbour so far: a Trigger.dev user could build the gate from its parts, and Tidegate could run
-on top of it (replay on a candidate, score, promote). The pitch against it is that the comparison and
-the promote decision are the product.
-
-Sources: [replaying](https://trigger.dev/docs/replaying), [versioning](https://trigger.dev/docs/versioning),
-[prompts](https://trigger.dev/docs/ai/prompts), [pricing](https://trigger.dev/pricing).
+## How it compares
+Others run agents on events and schedules (GitHub's agents, Amp, Trigger.dev) or evaluate them after the
+fact (LangSmith, Braintrust). None documents replaying real inputs on a changed agent and promoting it only
+if it does no worse as part of the deploy. The sourced comparison is in
+[docs/comparisons.md](docs/comparisons.md).
 
 ## The loop
 | Step | What Tidegate does | Status |
@@ -154,13 +37,9 @@ Sources: [replaying](https://trigger.dev/docs/replaying), [versioning](https://t
 | Record | Every run's input, output, log, files, problems, and every model call it made (gateway) | Built |
 | Review | `"review": {"then", "when"}`: only flagged runs wait; approve, correct (edit the output), revise with a note, or reject | Built |
 | Measure | Scorecard per version and agent: ok rate, approval rate, approved first time, auto-approved, tokens, evals | Built |
-| Improve | Corrected and approved outputs reach later runs in `$TIDEGATE_EXAMPLES`; an improver agent proposes changes | Built (examples built in; improver per project, e.g. Job Scout's `improve`) |
+| Improve | Corrected and approved outputs reach later runs in `$TIDEGATE_EXAMPLES`; an improver agent proposes changes | Built (examples built in; improver per project) |
 | Prove | `"gate"`: every deploy replays real inputs on the candidate and the live version, and goes live only if no worse | Built |
 | Factory | Coding agents (Claude Code on a runner) as workers: issue or failure pattern, PR, checks, review, merge | Next |
-
-The first factory is Job Scout (`job-watch/tailor`): tailor a resume to a job in the person's exact
-LaTeX format, gate it on format and facts, review it, record it, and improve the tailoring rules from
-the review notes.
 
 ## The problem
 Vercel made deploying a website one command. Deploying an agent still means putting these together:
@@ -169,7 +48,7 @@ Vercel made deploying a website one command. Deploying an agent still means putt
 - a scheduler: GitHub Actions cron, or a server with crontab;
 - an endpoint so other systems can call it, plus a queue so a slow agent does not hold the caller;
 - secrets that the agent can read but that are never committed;
-- somewhere to keep files between runs. Job Scout commits `seen.json` back to its repo;
+- somewhere to keep files between runs;
 - a record of what each run did, and a way to notice when the same thing keeps failing.
 
 Render, Railway and Fly can host this, but you write the Dockerfile and the queue yourself.
@@ -509,7 +388,7 @@ tidegate new "answer review comments on my open PRs, fixing what's valid with a 
 - Test: from one sentence, regenerate something close to pr-steward that passes its end-to-end tests.
 
 ## The first unattended agent: pr-steward (2026-11-26)
-`~/projects/pr-steward`, deployed to the local Tidegate. Three agents look after the owner's open pull
+Deployed to a local Tidegate. Three agents look after the owner's open pull
 requests with no approval step: `watch` (every 15m) finds new review comments, reviews, CI failures and
 conflicts and sends each to `fix`; `fix` runs headless Claude Code in a checkout, and pushes only if a
 named test fails before and passes after, the diff is at most 80 lines, no protected file is touched, the

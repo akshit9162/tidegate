@@ -1,15 +1,31 @@
 # Tidegate
 
+[![npm](https://img.shields.io/npm/v/tidegate)](https://www.npmjs.com/package/tidegate) [![test](https://github.com/akshit9162/tidegate/actions/workflows/test.yml/badge.svg)](https://github.com/akshit9162/tidegate/actions/workflows/test.yml) [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
+**A worse agent can't go live.** Tidegate is an open-source deploy gate for AI agents. Every deploy
+replays the last real inputs your agent received on the new version and on the live one, compares them,
+and promotes the new version only if it does no worse. Otherwise the live version stays, and the deploy
+says what got worse:
+
+```text
+Blocked: worse than the live version on 2 real inputs. The live version stays.
+  reply: short 100% (live 100%), no_promises 0% (live 100%)
+    worse: eval no_promises passes 0% vs 100% live
+  Ship it anyway: tidegate promote <version>
+```
+
 <p align="center"><img src="docs/demo.gif" alt="A change that makes a support agent promise fixes is blocked by the gate on 5 real inputs; the fix goes live." width="760"></p>
 
-**A worse agent can't go live.** Every deploy replays recent real inputs on the new version and the
-live one, and the new version goes live only if it does no worse. Like a tidegate in a sea wall,
-changes flow one way.
+It gates every change the same way: a prompt edit, a model swap, or a rule the agent rewrote itself.
+Around the gate, Tidegate hosts the agents (any language; endpoints, schedules, GitHub webhooks, secrets,
+saved files), records every model call with no SDK, and sends only the risky runs to a person.
 
-Around that gate, Tidegate hosts the agents: push a folder of agent code in any language and each agent
-gets an endpoint, a schedule, secrets and saved files. Every run is recorded with every model call it
-made, with no SDK or tracing code. Only the runs that look risky wait for a person, and a person's fix
-becomes an example the agent sees next time.
+Other tools run agents on events and schedules (GitHub's agents, Amp, Trigger.dev) or score them after
+the fact (LangSmith, Braintrust). Tidegate decides whether a change may ship.
+[How it compares](docs/comparisons.md), with sources.
+
+Status: 0.1. It runs on your machine (`tidegate dev`) or on your own Cloudflare account. There is no hosted
+version yet.
 
 ## Try it in two minutes
 You need Node 20 or later and Python 3. No account, no API key.
@@ -47,11 +63,12 @@ example answers from a template; set one with `tidegate secret set ANTHROPIC_API
 | Judge | A decision model (TypeSafe Jev, Google Gemini Decision, or an open-weight model) answers typed questions about every run. |
 | Prove | With `"gate"`, each deploy replays recent real inputs on the new and the live version, and goes live only if it does no worse. |
 
-## Why not a hosting provider plus a tracing tool plus an eval tool
-Most teams running agents glue together a host (Render, Modal, AWS), a tracing tool (LangSmith,
-Langfuse) that needs code in the agent, and an eval tool, then compare versions by hand. Tidegate is one
-place for all three, with no instrumentation code, and its review decisions are the labels its evals
-and judge are measured against.
+## Why not a host plus a tracing tool plus an eval tool
+Most teams glue together a host (Render, Modal, AWS), a tracing tool that needs code in the agent, and an
+eval script, then compare versions by hand. Tidegate is one place for all three with no instrumentation
+code, and the comparison is part of the deploy, not a step someone remembers. See
+[docs/comparisons.md](docs/comparisons.md) for where LangSmith, Braintrust, Trigger.dev, Amp and GitHub's
+agents fit, and where they are ahead.
 
 ## Writing an agent
 - Read the input from the JSON file at `$TIDEGATE_INPUT` and write the output as JSON to `$TIDEGATE_OUTPUT`.
@@ -74,7 +91,8 @@ and judge are measured against.
 - `{"follow_up": {"in": "20m", "input": {...}}}` in the output runs the agent again later, for example to
   check CI on a commit it pushed. From 1 minute to 1 day ahead, at most 5 in a row; replays never follow up.
 
-`examples/support-reply` uses all of this; `examples/ticket-triage` shows state and schedules. The full
+`examples/support-reply` uses all of this; `examples/review-reply` drafts replies to review comments from
+a GitHub webhook and posts the ones you approve; `examples/ticket-triage` shows state and schedules. The full
 design, including the judge and the gate, is in [SPEC.md](SPEC.md).
 
 ## Commands
@@ -113,6 +131,11 @@ npx wrangler deploy
 ```
 Set `DOMAIN` and `SCHEME` in wrangler.toml to your Worker's address. Then run a runner anywhere,
 with the same token: `RUNNER_TOKEN=... TIDEGATE_API=https://your-worker tidegate runner --isolate docker`.
+
+## Contributing
+Start with an issue labelled [good first issue](https://github.com/akshit9162/tidegate/labels/good%20first%20issue);
+[CONTRIBUTING.md](CONTRIBUTING.md) says how to run everything and what a pull request needs. Questions and
+ideas go to [Discussions](https://github.com/akshit9162/tidegate/discussions).
 
 ## Tests
 ```sh
