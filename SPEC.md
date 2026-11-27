@@ -130,6 +130,23 @@ Sources: [cloud agent automations](https://github.blog/changelog/2026-06-02-sche
 [graders spec](https://github.github.com/gh-aw/specs/graders-specification/),
 [usage-based billing](https://github.blog/changelog/2026/04/27/github-copilot-is-moving-to-usage-based-billing/).
 
+## Trigger.dev, read 2026-11-27
+Open-source durable background jobs in TypeScript, now pitched for AI agents: `chat.agent` (durable
+multi-turn agents), waitpoints for a person's approval, cron and verified webhooks, OTel traces with model
+cost, atomic versions with `deploy --skip-promotion` and `promote`, and `prompts.define()` (prompts
+versioned per deploy, with token, cost and latency per prompt version). Free, then $10 and $50 a month
+plus compute.
+
+**Overlap.** It has every piece of the gate except the decision. `runs.replay(id, {version})` and bulk
+replay rerun past payloads on a chosen version, but nothing compares the outputs. Promotion is by hand
+or automatic, never "only if no worse". No evals, judge, per-version scorecard or review queue. It is the
+nearest neighbour so far: a Trigger.dev user could build the gate from its parts, and Tidegate could run
+on top of it (replay on a candidate, score, promote). The pitch against it is that the comparison and
+the promote decision are the product.
+
+Sources: [replaying](https://trigger.dev/docs/replaying), [versioning](https://trigger.dev/docs/versioning),
+[prompts](https://trigger.dev/docs/ai/prompts), [pricing](https://trigger.dev/pricing).
+
 ## The loop
 | Step | What Tidegate does | Status |
 |---|---|---|
