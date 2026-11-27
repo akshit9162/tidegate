@@ -83,9 +83,9 @@ lacks: the `rules.md` changes `learn` proposed, and the ones the gate blocked on
 put their Amp agent behind the gate. Amp is a possible worker, not a rival: an agent in `tidegate.json`
 can call `amp -x` or the SDK the way pr-steward calls `claude -p`.
 
-**What to take:**
-1. **Wake on events, not only `every`.** Add `"on": {"github": ["pull_request_review", "check_run"]}` per
-   agent: a webhook URL per project that starts a run with the event as input. pr-steward's 15-minute
+**What to take** (1 and 2 built 2026-11-27, 3 is in `tidegate new` below, 4 is in the pitch):
+1. **Wake on events, not only `every`.** `"on": {"github": {"events": ["pull_request_review", "check_run"],
+   "secret": "GITHUB_WEBHOOK_SECRET"}}` per agent: a webhook URL per project that starts a run with the event as input. pr-steward's 15-minute
    poll becomes a push. Verify GitHub's HMAC signature on every delivery. Amp leaves signature checks
    to the plugin; Tidegate should not.
 2. **An agent schedules its own follow-up.** Amp threads set their own next wake-up. Let the output say
@@ -105,6 +105,30 @@ Sources: [ampcode.com](https://ampcode.com/), [docs](https://ampcode.com/docs),
 [automations and webhooks](https://ampcode.com/docs/orbs/automations),
 [shipping](https://ampcode.com/docs/orbs/shipping), [SDK](https://ampcode.com/docs/sdk),
 [runners](https://ampcode.com/docs/cli/runners), [pricing](https://ampcode.com/pricing).
+
+## GitHub's agents, read 2026-11-27
+GitHub runs agents inside repos: the Copilot cloud agent (an issue or prompt becomes a PR; since June 2026
+also on schedules and repo events), Agent HQ (Claude and Codex assigned to the same issue, compared side
+by side), Copilot code review (generally available March 2026), and Agentic Workflows (`gh-aw`, Markdown
+compiled to Actions, generally available 2026-10-28, also for non-coding work such as triage and reports).
+Billing is usage-based since 2026-06-01 (Pro $10, Pro+ $39, Business $19/user, Enterprise $39/user a month,
+each including that much in credits).
+
+**Overlap.** Like Amp, they cover running agents on events and schedules, which is where pr-steward sits.
+None replays recorded production inputs on a changed prompt or agent and promotes it only if it does no
+worse: a change to a custom agent's profile or to AGENTS.md goes live through ordinary PR review. No
+per-version scorecard, no review queue outside PRs. The closest are experimental: `gh aw trial` (runs a
+workflow in a scratch repo, `--repeat` for consistency, one chosen issue as context, no bulk replay, no
+promotion) and `gh-aw` A/B experiments with deterministic graders (draft spec v0.2.0). That work is the
+one to watch: it is GitHub heading toward the gate. Our answer is the same as for Amp: their agents can
+run behind Tidegate, and the gate is the part they do not have.
+
+Sources: [cloud agent automations](https://github.blog/changelog/2026-06-02-schedule-and-automate-tasks-with-copilot-cloud-agent/),
+[Agent HQ](https://github.blog/news-insights/company-news/welcome-home-agents/),
+[Agentic Workflows GA](https://github.blog/changelog/2026-10-28-github-agentic-workflows-generally-available),
+[TrialOps](https://github.github.com/gh-aw/experimental/trial-ops/),
+[graders spec](https://github.github.com/gh-aw/specs/graders-specification/),
+[usage-based billing](https://github.blog/changelog/2026/04/27/github-copilot-is-moving-to-usage-based-billing/).
 
 ## The loop
 | Step | What Tidegate does | Status |
@@ -166,7 +190,10 @@ A project is a folder with `tidegate.json`:
 - **Input and output are files**, so any language works: the run's JSON input is at
   `$TIDEGATE_INPUT`, and the agent writes its JSON output to `$TIDEGATE_OUTPUT`. Logs are stdout and
   stderr.
-- **Triggers:** HTTP (on by default), `every` (15m or longer), or by hand with `tidegate invoke`.
+- **Triggers:** HTTP (on by default), `every` (15m or longer), GitHub webhooks (`"on": {"github": {"events",
+  "secret"}}`, signature checked, redeliveries ignored), a follow-up the agent asks for in its output
+  (`{"follow_up": {"in": "20m", "input": {...}}}`, 1m to 1d, at most 5 in a row), or by hand with
+  `tidegate invoke`.
 - **State:** files listed in `state` are restored before each run and saved after it, even after
   a failed run.
 - **Secrets:** the agent receives only the secrets it lists, and never the runner's own credentials.
@@ -436,7 +463,7 @@ review flagged runs and they write the next version. These two features remove b
 
 ### How we will describe it, once built
 "Deploy an agent once. It gets better on its own, every change proven on real inputs, and it only
-messages you when it needs a person." Frame it as back pressure for agents: the gate and judge raise the quality of
+messages you when it needs a person. It runs on your machine today and on ours later, the same way." Frame it as back pressure for agents: the gate and judge raise the quality of
 what comes out before a person sees it. Not before judge review and the improve loop exist.
 
 Order: notifications (small, and useful today), then judge review (it needs only the scorecard and judge that exist), then the improve loop (it needs
@@ -455,6 +482,11 @@ tidegate new "answer review comments on my open PRs, fixing what's valid with a 
   gate, judge review and the improve loop take over.
 - It writes in the patterns pr-steward proved necessary (next section): side effects skipped on replay,
   hard gates before anything irreversible, `retry` for passing failures, `notify`, a kill switch.
+- **Hard rules in plain words.** Like Amp's "Custom Ship" prompt, the person may write the rules
+  ("push only if a test fails before and passes after; never touch CI files; at most 80 lines") as
+  sentences. `tidegate new` turns each one into a check in code, with a test that breaks it, and shows the
+  sentence next to its code. The sentence is documentation; the code is the rule, so a model reading it
+  cannot argue its way past it.
 - Who it is for decides the scope: developers who skip the boilerplate (CLI, readable code) first.
   Non-developers would need hosted runners, connectors (Gmail, Slack) and a web editor: later, if ever.
 - Test: from one sentence, regenerate something close to pr-steward that passes its end-to-end tests.
