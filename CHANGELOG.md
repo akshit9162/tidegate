@@ -3,7 +3,7 @@
 All notable changes to Tidegate. Versions follow [semver](https://semver.org); while it is 0.x, a minor
 version may change the tidegate.json format, and the entry says how to update.
 
-## 0.1.1 (unreleased)
+## 0.1.1 (2026-11-27)
 
 - GitHub webhooks start runs: `"on": {"github": {"events": [...], "secret": "NAME"}}` per agent, at
   `/hooks/<project>/github`. Each delivery's `X-Hub-Signature-256` is checked against the named secret, and
