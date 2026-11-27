@@ -10,6 +10,8 @@ version may change the tidegate.json format, and the entry says how to update.
   redeliveries are ignored. Runs started this way are real inputs, so the gate replays them.
 - An agent can ask for one later run with `{"follow_up": {"in": "20m", "input": {...}}}` in its output
   (1 minute to 1 day; at most 5 in a row).
+- Fixed: `tidegate dev --port N` started its runner against port 8787 unless `TIDEGATE_API` was also set,
+  and printed a deploy hint that did the same.
 
 - The npm page shows the current README: install with `npm install -g tidegate`. `npx tidegate` inside a
   clone of this repo fails because npx finds the repo's own package.

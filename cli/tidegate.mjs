@@ -11,7 +11,8 @@ import { createInterface } from "node:readline";
 import { distance } from "../worker/src/config.js";
 import { judgeRun, runState } from "./judge.mjs";
 
-const API = (process.env.TIDEGATE_API ?? "http://localhost:8787").replace(/\/$/, "");
+const DEFAULT_API = "http://localhost:8787";
+let API = (process.env.TIDEGATE_API ?? DEFAULT_API).replace(/\/$/, "");
 const HOME = process.env.TIDEGATE_HOME || path.join(homedir(), ".tidegate");
 const CREDS = path.join(HOME, "credentials.json");
 const SKIP = new Set([".git", "node_modules", "__pycache__", ".venv", "venv", ".DS_Store", ".tidegate", ".pytest_cache", ".wrangler"]);
@@ -531,12 +532,13 @@ async function dev({ port = 8787, isolate = "none" } = {}) {
     if (await fetch(`${api}/api/validate`, { method: "POST", body: "{}" }).then((r) => r.ok).catch(() => false)) break;
   }
   console.log(`Tidegate is running on ${api}
-  deploy:   cd your-agent && tidegate deploy        (TIDEGATE_API=${api} is the default)
+  deploy:   cd your-agent && ${api === DEFAULT_API ? "tidegate deploy" : `TIDEGATE_API=${api} tidegate deploy`}
   runs:     tidegate dashboard, in the agent's folder
   data:     ${dir}
 Ctrl-C stops it.`);
   process.env.RUNNER_TOKEN = vars.RUNNER_TOKEN;
-  if (API !== api) console.log(`Note: TIDEGATE_API is ${API}; the runner uses that address.`);
+  if (!process.env.TIDEGATE_API) API = api;
+  else if (API !== api) console.log(`Note: TIDEGATE_API is ${API}; the runner uses that address.`);
   return runner({ isolate });
 }
 
