@@ -61,14 +61,14 @@ example answers from a template; set one with `tidegate secret set ANTHROPIC_API
 | Review | With `"review": {"when": "flagged"}`, only runs with low confidence, a failed eval, a failed judge question or errors wait for you. Approve, edit the output, revise with a note, or reject. |
 | Learn | Outputs you approved or corrected reach later runs in `$TIDEGATE_EXAMPLES`. |
 | Judge | A decision model (TypeSafe Jev, Google Gemini Decision, or an open-weight model) answers typed questions about every run. |
-| Prove | With `"gate"`, each deploy replays recent real inputs on the new and the live version, and goes live only if it does no worse. |
+| Prove | With `"gate"`, each deploy replays recent real inputs on the new and the live version, and goes live only if it does no worse. Add `"replay_failed": 5` to also replay older inputs that went wrong, as a separate group: the deploy reports how many the new version gets right, and fixing old failures never excuses a regression on recent ones. |
 
 ## Why not a host plus a tracing tool plus an eval tool
 Most teams glue together a host (Render, Modal, AWS), a tracing tool that needs code in the agent, and an
 eval script, then compare versions by hand. Tidegate is one place for all three with no instrumentation
 code, and the comparison is part of the deploy, not a step someone remembers. See
-[docs/comparisons.md](docs/comparisons.md) for where LangSmith, Braintrust, Trigger.dev, Amp and GitHub's
-agents fit, and where they are ahead.
+[docs/comparisons.md](docs/comparisons.md) for where LangSmith, Braintrust, Moda, Trigger.dev, Amp and
+GitHub's agents fit, and where they are ahead.
 
 ## Writing an agent
 - Read the input from the JSON file at `$TIDEGATE_INPUT` and write the output as JSON to `$TIDEGATE_OUTPUT`.

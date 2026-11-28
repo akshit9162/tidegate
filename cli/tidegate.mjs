@@ -180,6 +180,7 @@ export function gateText(gate, version) {
     const parts = Object.entries(a.candidate.evals).map(([k, e]) => `${k} ${val(e)} (live ${val(a.live.evals[k])})`);
     if (a.candidate.ok_rate !== a.live.ok_rate) parts.unshift(`ok ${pct(a.candidate.ok_rate)} (live ${pct(a.live.ok_rate)})`);
     lines.push(`  ${a.agent}: ${parts.join(", ") || `ok ${pct(a.candidate.ok_rate)}`}`);
+    if (a.failed) lines.push(`    went right on ${a.failed.fixed} of ${a.failed.inputs} inputs that went wrong before (live ${a.failed.live_fixed})`);
     for (const w of a.worse) lines.push(`    worse: ${w}`);
   }
   if (gate.status !== "passed") lines.push(`  Ship it anyway: tidegate promote ${version}`);

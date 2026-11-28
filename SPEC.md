@@ -168,6 +168,14 @@ the live version stays, and `tidegate deploy` (and `git push`) report what got w
         worse: eval short passes 0% vs 100% live
       Ship it anyway: tidegate promote v2
 
+`"replay_failed": N` (0 by default, built 2026-11-28) also reruns the last N older inputs that went
+wrong: the run failed or timed out, a person rejected, revised or corrected it, or an eval failed. They
+are judged as their own group, by the same rule, so a change that fixes old failures but breaks a recent
+input is still blocked. The verdict counts how many each side got right ("went right on 3 of 5 inputs
+that went wrong before (live 0)"): the gate shows a change fixes what failed and breaks nothing that
+worked. Fixing is reported, not required. Without an eval or a judge question, a person's rejection
+cannot be rechecked, so a run that does not fail counts as right.
+
 `tidegate promote` still overrides. The verdict is written by one conditional UPDATE, and promotion only
 moves production off the version the gate compared against, so a manual promote in the meantime wins.
 Gate replays are kept out of the scorecard. Replays are never reviewed and never trigger `then` agents;
@@ -427,6 +435,25 @@ platform gaps, each found by running it:
 - **Isolation.** The agent's tests run as the owner's user, including tests the model wrote; a comment
   that talked the model into a hostile test reaches everything the account can. `--isolate docker` is the
   answer, which hosted runners need anyway.
+
+## After the launch: what to take from Trigger.dev and Moda (2026-11-28)
+Taken only where it makes the gate stronger. Running agents at scale stays out of scope (the bet above).
+1. **Replay what failed** (`gate.replay_failed`): built 2026-11-28, see the deploy gate. Moda replays a
+   change on the failed traces; the gate does that and also replays the recent inputs that went well.
+2. **Flag bad runs without labels.** From what the runner and the gateway already record: tool errors in
+   model calls, empty or refused output, failed evals, judge answers. These feed `review.when: flagged`
+   and `replay_failed`, and are the first step of judge review (section 1 above).
+3. **Retries per agent:** `"retry": {"max": 3, "backoff": "1m"}`, for failures that are not the agent's
+   fault. pr-steward retries by hand today.
+4. **Concurrency per agent:** `"concurrency": 1` so runs of one agent never overlap. pr-steward keeps its
+   state outside Tidegate because overlapping runs race on `state`; this fixes it at the source.
+5. **Group failures into problems** ("12 runs failed the same eval the same way"), once there is real
+   traffic. This extends "flags grouped by reason" below.
+
+Left out on purpose: checkpointed durable runs, multi-machine queues and autoscaling, a task SDK and
+build extensions (the no-SDK contract is a selling point), realtime streams to frontends, and a gateway
+that picks the model (the gate can already show whether a model change is safe). A hosted version is the
+one large gap; it is a business decision after the launch, not a feature to copy.
 
 ## The closed loop: what is left (in order)
 1. **Threshold preview:** "what if `min_confidence` were 0.8" on past runs: how many would have waited,

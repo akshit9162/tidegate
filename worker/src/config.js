@@ -19,7 +19,7 @@ const KEYS = {
   on: ["github"],
   github: ["events", "secret"],
   review: ["then", "when", "min_confidence"],
-  gate: ["replay", "agents", "tolerance"],
+  gate: ["replay", "replay_failed", "agents", "tolerance"],
   judge: ["provider", "model", "url", "key", "agents", "gate", "questions"],
   question: ["type", "instructions", "pass", "threshold", "criteria", "min"],
 };
@@ -58,7 +58,7 @@ function cleanPath(p) {
  * trace: whether the agent's model calls go through the gateway and are recorded.
  * on: null, or { github: { events, secret } }: GitHub webhooks signed with the named secret start a run.
  *   An event is "pull_request_review" or, to narrow it to one action, "pull_request_review.submitted".
- * The project: { agents, state, checks, gate, image }. gate is null or { replay, agents, tolerance }.
+ * The project: { agents, state, checks, gate, image }. gate is null or { replay, replay_failed, agents, tolerance }.
  */
 export function parseConfig(text) {
   if (text == null) return { config: null, problems: ['tidegate.json: missing; it names your agents, e.g. {"agents": [{"name": "triage", "run": "python agent.py"}]}'] };
@@ -120,11 +120,12 @@ export function parseConfig(text) {
   if (raw.gate === true) raw.gate = {};
   if (raw.gate && typeof raw.gate === "object") {
     unknownKeys(raw.gate, "gate", "tidegate.json: gate", problems);
-    gate = { replay: raw.gate.replay ?? 10, agents: raw.gate.agents ?? null, tolerance: raw.gate.tolerance ?? 0 };
+    gate = { replay: raw.gate.replay ?? 10, replay_failed: raw.gate.replay_failed ?? 0, agents: raw.gate.agents ?? null, tolerance: raw.gate.tolerance ?? 0 };
     if (!Number.isInteger(gate.replay) || gate.replay < 1 || gate.replay > 50) problems.push('tidegate.json: gate "replay" is how many past inputs to rerun, 1 to 50');
+    if (!Number.isInteger(gate.replay_failed) || gate.replay_failed < 0 || gate.replay_failed > 50) problems.push('tidegate.json: gate "replay_failed" is how many older inputs that went wrong to rerun, 0 to 50');
     if (typeof gate.tolerance !== "number" || gate.tolerance < 0 || gate.tolerance > 1) problems.push('tidegate.json: gate "tolerance" is a number from 0 to 1');
     for (const g of gate.agents ?? []) if (!agents.some((a) => a.name === g)) problems.push(`tidegate.json: gate names agent "${g}", which is not in "agents"`);
-  } else if (raw.gate != null && raw.gate !== false) problems.push('tidegate.json: "gate" is true, or {"replay": 10, "agents": [...], "tolerance": 0}');
+  } else if (raw.gate != null && raw.gate !== false) problems.push('tidegate.json: "gate" is true, or {"replay": 10, "replay_failed": 5, "agents": [...], "tolerance": 0}');
   const image = raw.image == null ? null : String(raw.image);
   const judge = raw.judge == null ? null : parseJudge(raw.judge, agents, problems);
   return { config: { agents, state, checks: (raw.checks ?? []).map(String), gate, image, judge }, problems };

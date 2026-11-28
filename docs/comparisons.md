@@ -7,8 +7,10 @@ here is wrong or out of date, open an issue or a pull request with the source an
 Tidegate's one job is the deploy decision: replay the real inputs an agent received on the new version
 and on the live one, side by side, and promote the new version only if it does no worse. The products
 below are good at things Tidegate does not try to do. None of them documents that comparison as a
-built-in step of a deploy. LangSmith and Braintrust come closest: both can build a dataset from
-production traces and run evals on it in CI, and you write the pass or fail rule yourself.
+built-in step of a deploy. LangSmith and Braintrust come closest on evals: both can build a dataset from
+production traces and run evals on it in CI, and you write the pass or fail rule yourself. Moda comes
+closest on replays: it replays a proposed change against the production traces that failed, and your team
+decides what ships.
 
 | | Runs agents on events and schedules | Records model calls | Evals and experiments | Review queue | Replays real inputs on a new version | Promotes only if no worse, automatically |
 |---|---|---|---|---|---|---|
@@ -18,6 +20,7 @@ production traces and run evals on it in CI, and you write the pass or fail rule
 | **Trigger.dev** | Yes (durable jobs, cron, webhooks) | OpenTelemetry traces with model cost | No | Waitpoints for approval | Yes, by hand or in bulk, on a version you choose | No: promotion is by hand or automatic |
 | **LangSmith** | Yes (Agent Server) | SDK wrappers or OpenTelemetry | Yes: datasets, experiments, online evaluators | Annotation queues | Yes, as backtesting on a dataset built from traces | Not built in; an example CI pipeline shows how to build it |
 | **Braintrust** | No ("Agent deployment through the SDK is not supported") | SDK or its Gateway | Yes: experiments with a diff against a baseline | Human review | Yes, as experiments on a dataset built from logs | No: its GitHub Action posts results; a custom reporter can fail CI |
+| **Moda** | No (it ingests traces from where your agent runs) | SDK, OpenTelemetry or HTTP; an inference gateway in beta | Signals detected on every trace, custom signals in plain language | Problems ranked by users affected | Yes, on the traces that failed | No: "Your team reviews the result and decides what ships" |
 
 ## Amp
 A coding agent whose threads run in cloud sandboxes ("orbs") or on a runner on your own machine. Orbs wake
@@ -92,6 +95,22 @@ $249 a month ([pricing](https://www.braintrust.dev/pricing)).
 **Where it is ahead:** experiment analysis, scoring at scale, team workflows. **The difference:** Braintrust
 tells you a version regressed; Tidegate is also where the agent runs, so it can keep the worse version
 from going live.
+
+## Moda
+A hosted layer that finds what goes wrong in production agents. You send traces through its Python or
+Node.js SDK, OpenTelemetry, or an HTTP API ([docs](https://docs.moda.dev/)). It detects signals such as
+frustration, tool failures, laziness and hallucination, groups traces by use case, and ranks problems by
+how many users they affect, with alerts in Slack, Linear or email. To check a fix: "Replay a prompt, model,
+or tool change against the exact traces that failed and compare pass rate, latency, and tokens. Your team
+reviews the result and decides what ships" ([moda.dev](https://moda.dev/)). An inference gateway that
+picks models from replays is in beta ([llms.txt](https://moda.dev/llms.txt)). Invite-only, pricing on
+request.
+
+**Where it is ahead:** finding and ranking failures you did not know about, without labels or evals
+written by hand. **The difference:** Moda replays the failures to show a fix fixes them; Tidegate replays
+the recent inputs, the ones that went well too, to show a change breaks nothing that worked, and it is
+where the agent runs, so the deploy stops by itself. **Together:** Moda finds the problem and proposes
+the change; the gate decides whether it goes live.
 
 ## Where Tidegate is behind
 - No hosted version. You run it with `tidegate dev` or on your own Cloudflare account.

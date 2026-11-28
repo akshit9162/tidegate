@@ -122,7 +122,7 @@ test("review.when, examples and gate are checked", () => {
   assert.deepEqual(ok.problems, []);
   assert.deepEqual(ok.config.agents[0].review, { then: null, when: "flagged", min_confidence: 0.5 });
   assert.deepEqual([ok.config.agents[0].examples, ok.config.agents[0].trace], [0, false]);
-  assert.deepEqual(ok.config.gate, { replay: 5, agents: null, tolerance: 0 });
+  assert.deepEqual(ok.config.gate, { replay: 5, replay_failed: 0, agents: null, tolerance: 0 });
   const bad = parseConfig(JSON.stringify({ agents: [{ name: "a", run: "x", review: { when: "sometimes", min_confidence: 2 }, examples: 99 }], gate: { replay: 0, agents: ["ghost"] } }));
   assert.equal(bad.problems.length, 5, bad.problems.join("\n"));
 });
@@ -152,6 +152,24 @@ test("the gate blocks a candidate that does worse than the live version on the s
   assert.equal(v.status, "blocked");
   assert.deepEqual(v.agents[0].worse, ["ok rate 50% vs 100% live", "eval short passes 0% vs 100% live", "eval len averages 3 vs 5 live"]);
   assert.equal(judgeGate([r("cand", "ok", { len: 4.6 }), r("live", "ok", { len: 5 })], "cand", 0.5).status, "passed", "within tolerance");
+});
+
+test("replay_failed: inputs that went wrong are judged apart, so fixing them cannot hide a regression", async () => {
+  const { judgeGate } = await import("../worker/src/loop.js");
+  const { gateText } = await import("../cli/tidegate.mjs");
+  const r = (version, status, replay_of, evals = {}) => ({ agent: "draft", version, status, replay_of, output: { evals } });
+  const recentSame = [r("cand", "ok", "a"), r("live", "ok", "a")];
+  const fixes = judgeGate([...recentSame, r("cand", "ok", "f1"), r("live", "failed", "f1"), r("cand", "ok", "f2", { cites: false }), r("live", "failed", "f2")], "cand", 0, ["f1", "f2"]);
+  assert.equal(fixes.status, "passed");
+  assert.deepEqual(fixes.agents[0].failed, { inputs: 2, fixed: 1, live_fixed: 0 });
+  assert.equal(fixes.agents[0].candidate.runs, 1, "recent group holds only recent inputs");
+  assert.match(gateText(fixes, "cand"), /went right on 1 of 2 inputs that went wrong before \(live 0\)/);
+  const hides = judgeGate([r("cand", "failed", "a"), r("live", "ok", "a"), r("cand", "ok", "f1"), r("live", "failed", "f1")], "cand", 0, ["f1"]);
+  assert.equal(hides.status, "blocked");
+  assert.deepEqual(hides.agents[0].worse, ["ok rate 0% vs 100% live"]);
+  const worseOnOld = judgeGate([...recentSame, r("cand", "failed", "f1"), r("live", "ok", "f1")], "cand", 0, ["f1"]);
+  assert.deepEqual(worseOnOld.agents[0].worse, ["ok rate 0% vs 100% live on inputs that went wrong before"]);
+  assert.ok(parseConfig(JSON.stringify({ agents: [{ name: "a", run: "x" }], gate: { replay_failed: 51 } })).problems.some((p) => /replay_failed/.test(p)));
 });
 
 test("the gateway reads model and tokens from Anthropic and OpenAI responses, streamed or not", async () => {

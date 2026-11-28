@@ -130,6 +130,19 @@ async function sources(env, project, agent, n) {
   ).bind(project, agent, ...SOURCE_TRIGGERS, n).all()).results;
 }
 
+// A run that went wrong: it failed or timed out, a person did not approve it as it was, or an eval failed.
+const wentWrong = (r) => ["failed", "timeout"].includes(r.status) || ["corrected", "revised", "rejected"].includes(r.review)
+  || evalEntries(r.output).some(([, v]) => v.pass === false);
+
+/** The agent's last `n` real inputs that went wrong, leaving out the runs in `skip`. */
+async function failedSources(env, project, agent, n, skip) {
+  const rows = (await env.DB.prepare(
+    `SELECT id, input, status, review, output FROM runs WHERE project = ? AND agent = ? AND kind = 'agent' AND trigger IN (${SOURCE_TRIGGERS.map(() => "?").join(",")})
+     AND parent IS NULL AND input IS NOT NULL AND status IN ('ok', 'failed', 'timeout') ORDER BY queued_at DESC LIMIT 500`,
+  ).bind(project, agent, ...SOURCE_TRIGGERS).all()).results;
+  return rows.filter((r) => !skip.has(r.id) && wentWrong({ ...r, output: r.output == null ? null : JSON.parse(r.output) })).slice(0, n);
+}
+
 /** Rerun the agent's last `last` real inputs on `version`. Returns the queued run ids. */
 export async function replay(env, project, agent, version, last = 10) {
   const v = await env.DB.prepare("SELECT id, config FROM versions WHERE id = ? AND project = ? AND status = 'ready'").bind(version, project).first();
@@ -146,8 +159,9 @@ export async function replay(env, project, agent, version, last = 10) {
 // A version deployed to go live, in a project whose tidegate.json has "gate", is not promoted straight away.
 // Tidegate reruns the last `replay` real inputs of each gated agent on the candidate and on the live version
 // side by side (runs tagged gate = candidate), and promotes only if the candidate is not worse on any
-// agent: ok rate and each eval's pass rate and mean, within `tolerance`. A blocked candidate stays ready
-// and can still be promoted by hand.
+// agent: ok rate and each eval's pass rate and mean, within `tolerance`. With `replay_failed`, it also
+// reruns that many older inputs that went wrong, judged as their own group, so fixing old failures cannot
+// hide a regression on recent inputs. A blocked candidate stays ready and can still be promoted by hand.
 
 /** Queue the gate's replays. Returns false when there is nothing to compare, so the caller promotes. */
 export async function startGate(env, project, candidate, config, production) {
@@ -155,8 +169,12 @@ export async function startGate(env, project, candidate, config, production) {
   const liveAgents = new Set(JSON.parse(live?.config ?? "{}").agents?.map((a) => a.name) ?? []);
   const names = (config.gate.agents ?? config.agents.map((a) => a.name)).filter((n) => liveAgents.has(n));
   let queued = 0;
+  const failed = [];
   for (const agent of names) {
-    for (const s of await sources(env, project, agent, config.gate.replay)) {
+    const recent = await sources(env, project, agent, config.gate.replay);
+    const wrong = config.gate.replay_failed ? await failedSources(env, project, agent, config.gate.replay_failed, new Set(recent.map((s) => s.id))) : [];
+    failed.push(...wrong.map((s) => s.id));
+    for (const s of [...recent, ...wrong]) {
       const input = JSON.parse(s.input);
       for (const version of [candidate, production]) {
         await queueRun(env, { project, agent, version, trigger: "replay", input, replayOf: s.id, gate: candidate });
@@ -166,31 +184,47 @@ export async function startGate(env, project, candidate, config, production) {
   }
   if (!queued) return false;
   await env.DB.prepare("UPDATE versions SET gate = ? WHERE id = ?")
-    .bind(JSON.stringify({ status: "replaying", against: production, runs: queued, tolerance: config.gate.tolerance, judge: config.judge?.gate === true }), candidate).run();
+    .bind(JSON.stringify({ status: "replaying", against: production, runs: queued, failed, tolerance: config.gate.tolerance, judge: config.judge?.gate === true }), candidate).run();
   return true;
 }
 
-/** Compare the candidate's gate replays with the live version's. Pure, so it is unit tested. */
-export function judgeGate(runs, candidate, tolerance = 0) {
+/**
+ * Compare the candidate's gate replays with the live version's. Pure, so it is unit tested. Runs whose
+ * replay_of is in `failed` are the older inputs that went wrong: judged apart, with how many each side fixed.
+ */
+export function judgeGate(runs, candidate, tolerance = 0, failed = []) {
   const side = (rs) => {
     const card = scorecard(rs.map((r) => ({ ...r, kind: "agent", trigger: "live" })))[0];
     return card ? { runs: card.runs, ok_rate: card.ok_rate, evals: card.evals } : { runs: 0, ok_rate: null, evals: {} };
   };
-  const agents = [];
-  for (const agent of [...new Set(runs.map((r) => r.agent))].sort()) {
-    const mine = runs.filter((r) => r.agent === agent);
-    const cand = side(mine.filter((r) => r.version === candidate));
-    const live = side(mine.filter((r) => r.version !== candidate));
+  const below = (a, b) => a != null && b != null && a < b - tolerance;
+  const compare = (rs, on) => {
+    const cand = side(rs.filter((r) => r.version === candidate));
+    const live = side(rs.filter((r) => r.version !== candidate));
     const worse = [];
-    const below = (a, b) => a != null && b != null && a < b - tolerance;
-    if (below(cand.ok_rate, live.ok_rate)) worse.push(`ok rate ${pctText(cand.ok_rate)} vs ${pctText(live.ok_rate)} live`);
+    if (below(cand.ok_rate, live.ok_rate)) worse.push(`ok rate ${pctText(cand.ok_rate)} vs ${pctText(live.ok_rate)} live${on}`);
     for (const [name, e] of Object.entries(cand.evals)) {
       const l = live.evals[name];
       if (!l) continue;
-      if (below(e.pass_rate, l.pass_rate)) worse.push(`eval ${name} passes ${pctText(e.pass_rate)} vs ${pctText(l.pass_rate)} live`);
-      if (below(e.mean, l.mean)) worse.push(`eval ${name} averages ${e.mean} vs ${l.mean} live`);
+      if (below(e.pass_rate, l.pass_rate)) worse.push(`eval ${name} passes ${pctText(e.pass_rate)} vs ${pctText(l.pass_rate)} live${on}`);
+      if (below(e.mean, l.mean)) worse.push(`eval ${name} averages ${e.mean} vs ${l.mean} live${on}`);
     }
-    agents.push({ agent, candidate: cand, live, worse });
+    return { cand, live, worse };
+  };
+  const wrong = new Set(failed);
+  const agents = [];
+  for (const agent of [...new Set(runs.map((r) => r.agent))].sort()) {
+    const mine = runs.filter((r) => r.agent === agent);
+    const recent = compare(mine.filter((r) => !wrong.has(r.replay_of)), "");
+    const entry = { agent, candidate: recent.cand, live: recent.live, worse: recent.worse };
+    const old = mine.filter((r) => wrong.has(r.replay_of));
+    if (old.length) {
+      const f = compare(old, " on inputs that went wrong before");
+      const fixed = (pick) => old.filter((r) => pick(r.version) && !wentWrong(r)).length;
+      entry.failed = { inputs: new Set(old.map((r) => r.replay_of)).size, fixed: fixed((v) => v === candidate), live_fixed: fixed((v) => v !== candidate) };
+      entry.worse.push(...f.worse);
+    }
+    agents.push(entry);
   }
   return { status: agents.some((a) => a.worse.length) ? "blocked" : "passed", agents };
 }
@@ -206,7 +240,7 @@ export async function settleGates(env, only = null) {
   const open = (await env.DB.prepare(`SELECT id, project, gate FROM versions WHERE gate LIKE '%"status":"replaying"%' ${only ? "AND id = ?" : ""}`)
     .bind(...(only ? [only] : [])).all()).results;
   for (const v of open) {
-    const runs = (await env.DB.prepare("SELECT agent, version, status, output, judge FROM runs WHERE gate = ?").bind(v.id).all()).results;
+    const runs = (await env.DB.prepare("SELECT agent, version, status, output, judge, replay_of FROM runs WHERE gate = ?").bind(v.id).all()).results;
     if (runs.some((r) => ["queued", "running"].includes(r.status))) continue;
     const gate = JSON.parse(v.gate);
     // The judge's answers count only when tidegate.json asks ("judge": {"gate": true}).
@@ -214,7 +248,7 @@ export async function settleGates(env, only = null) {
       const out = r.output == null ? null : JSON.parse(r.output);
       return gate.judge ? withJudge(out, JSON.parse(r.judge ?? "null")) : out;
     };
-    const verdict = { ...gate, ...judgeGate(runs.map((r) => ({ ...r, output: outputOf(r) })), v.id, gate.tolerance ?? 0) };
+    const verdict = { ...gate, ...judgeGate(runs.map((r) => ({ ...r, output: outputOf(r) })), v.id, gate.tolerance ?? 0, gate.failed ?? []) };
     const won = await env.DB.prepare("UPDATE versions SET gate = ? WHERE id = ? AND gate = ?").bind(JSON.stringify(verdict), v.id, v.gate).run();
     if (won.meta.changes && verdict.status === "passed") {
       await env.DB.prepare("UPDATE projects SET production = ? WHERE name = ? AND production = ?").bind(v.id, v.project, gate.against).run();

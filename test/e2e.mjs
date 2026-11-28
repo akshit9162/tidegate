@@ -344,6 +344,29 @@ card = (await api(`/api/projects/${name}/scorecard?agent=draft`)).body;
 assert.ok(!card.scorecard.some((x) => x.version !== card.production && x.version !== gatedLive && x.kind === "replay" && x.runs === 6), "gate replays stay out of the scorecard");
 step("gate: a candidate whose evals drop on the same inputs is blocked and the live version stays; an equal one goes live");
 
+const flaky = (body) => writeFile(path.join(dir, "flaky.py"), `import json, os, sys
+inp = json.load(open(os.environ["TIDEGATE_INPUT"]))
+${body}
+json.dump({"echo": inp["word"]}, open(os.environ["TIDEGATE_OUTPUT"], "w"))
+`);
+await flaky(`if inp["word"] == "boom": sys.exit(1)`);
+await config((c) => {
+  c.agents.push({ name: "flaky", run: "python3 flaky.py" });
+  c.gate = { replay: 1, replay_failed: 2, agents: ["flaky"] };
+});
+r = await tidegate("deploy", "--name", name);
+assert.match(r.out, /Live: /, r.out);
+for (const word of ["boom", "hello"]) await tidegate("invoke", "flaky", JSON.stringify({ word }));
+await flaky(`if inp["word"] == "hello": sys.exit(1)`);
+r = await tidegate("deploy", "--name", name);
+assert.match(r.out, /Blocked: worse than the live version/, r.out);
+assert.match(r.out, /went right on 1 of 1 inputs that went wrong before \(live 0\)/, r.out);
+await flaky("");
+r = await tidegate("deploy", "--name", name);
+assert.match(r.out, /Gate passed/, r.out);
+assert.match(r.out, /went right on 1 of 1 inputs that went wrong before \(live 0\)/, r.out);
+step("gate replay_failed: older failed inputs are replayed as their own group; a fix that breaks a recent input is still blocked");
+
 // 5. git push to deploy, through the git-remote-tidegate helper.
 const bin = path.join(work, "bin");
 await mkdir(bin);

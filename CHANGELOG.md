@@ -3,6 +3,15 @@
 All notable changes to Tidegate. Versions follow [semver](https://semver.org); while it is 0.x, a minor
 version may change the tidegate.json format, and the entry says how to update.
 
+## Unreleased
+
+Added:
+- `"gate": {"replay_failed": N}` also replays the last N older inputs that went wrong (the run failed or
+  timed out, a person rejected, revised or corrected it, or an eval failed). They are judged apart from
+  the recent inputs, by the same no-worse rule, and the deploy reports
+  `went right on 3 of 5 inputs that went wrong before (live 0)`. "Went right" means the replay did not fail
+  and no eval failed, so a rejection is only rechecked when the agent has an eval or a judge for it.
+
 ## 0.1.1 (2026-11-27)
 
 Added:
