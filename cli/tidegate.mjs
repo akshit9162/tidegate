@@ -18,8 +18,10 @@ const CREDS = path.join(HOME, "credentials.json");
 const SKIP = new Set([".git", "node_modules", "__pycache__", ".venv", "venv", ".DS_Store", ".tidegate", ".pytest_cache", ".wrangler"]);
 
 class CliError extends Error {
-  constructor(message, code = 1) {
+  /** `slug` is stable for scripts and agents; `message` is prose that may change; `code` is the exit status. */
+  constructor(slug, message, code = 1) {
     super(message);
+    this.slug = slug;
     this.code = code;
   }
 }
@@ -34,14 +36,14 @@ async function call(method, route, { token, body, headers = {}, raw = false } = 
   try {
     res = await fetch(API + route, { method, headers: h, body: body === undefined ? undefined : body instanceof Uint8Array || typeof body === "string" ? body : JSON.stringify(body) });
   } catch (e) {
-    throw new CliError(`cannot reach Tidegate at ${API} (${e.cause?.code ?? e.message}).\nStart it in another terminal with: tidegate dev   (or set TIDEGATE_API to your server)`);
+    throw new CliError("TG_UNREACHABLE", `cannot reach Tidegate at ${API} (${e.cause?.code ?? e.message}).\nStart it in another terminal with: tidegate dev   (or set TIDEGATE_API to your server)`);
   }
   if (raw) {
-    if (!res.ok) throw new CliError(`${method} ${route}: HTTP ${res.status}`);
+    if (!res.ok) throw new CliError("TG_HTTP", `${method} ${route}: HTTP ${res.status}`);
     return res;
   }
   const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-  if (!res.ok) throw new CliError(data.error ?? `HTTP ${res.status}`);
+  if (!res.ok) throw new CliError("TG_HTTP", data.error ?? `HTTP ${res.status}`);
   return data;
 }
 
@@ -62,7 +64,7 @@ async function saveToken(project, token) {
 
 async function tokenFor(project) {
   const t = process.env.TIDEGATE_TOKEN ?? (await creds())[API]?.[project];
-  if (!t) throw new CliError(`no token for ${project} on ${API}; deploy it from this machine first, or set TIDEGATE_TOKEN`);
+  if (!t) throw new CliError("TG_NO_TOKEN", `no token for ${project} on ${API}; deploy it from this machine first, or set TIDEGATE_TOKEN`);
   return t;
 }
 
@@ -108,7 +110,7 @@ async function pool(items, n, fn) {
 export async function deploy(dir, { name, promote = true, wait = true, replay = null, log = console.log } = {}) {
   dir = path.resolve(dir);
   if (!(await stat(path.join(dir, "tidegate.json")).catch(() => null)))
-    throw new CliError(`no tidegate.json in ${dir}\nRun deploy in an agent's folder (try examples/support-reply), or create one: {"agents": [{"name": "triage", "run": "python agent.py"}]}`, 2);
+    throw new CliError("TG_NO_CONFIG", `no tidegate.json in ${dir}\nRun deploy in an agent's folder (try examples/support-reply), or create one: {"agents": [{"name": "triage", "run": "python agent.py"}]}`, 2);
   const project = await projectName(dir, name);
   const paths = await walk(dir);
   const files = {}, bySha = {};
@@ -251,7 +253,7 @@ async function fetchBlob(sha, token) {
   if (existsSync(p)) return p;
   const res = await call("GET", `/api/runner/blobs/${sha}`, { token, raw: true });
   const buf = Buffer.from(await res.arrayBuffer());
-  if (sha256(buf) !== sha) throw new CliError(`blob ${sha} came back corrupted`);
+  if (sha256(buf) !== sha) throw new CliError("TG_BLOB_CORRUPT", `blob ${sha} came back corrupted`);
   await mkdir(BLOBS, { recursive: true });
   await writeFile(p, buf);
   return p;
@@ -294,7 +296,7 @@ async function pythonEnv(work, log) {
     await rm(venv, { recursive: true, force: true });
     for (const cmd of [`python3 -m venv ${JSON.stringify(venv)}`, `${JSON.stringify(path.join(venv, "bin", "pip"))} install -q -r requirements.txt`]) {
       const r = await sh(cmd, { cwd: work, env: { PATH: process.env.PATH, HOME: work }, timeoutSec: 900, onOutput: (b) => log(b.toString()) });
-      if (r.code !== 0) throw new CliError("installing requirements.txt failed");
+      if (r.code !== 0) throw new CliError("TG_INSTALL_FAILED", "installing requirements.txt failed");
     }
     await writeFile(path.join(venv, ".ready"), "");
   }
@@ -316,7 +318,7 @@ async function dockerImage(work, task, log) {
     const tag = `tidegate-${task.run.project}:${sha256(JSON.stringify(Object.entries(task.files).sort())).slice(0, 16)}`;
     if (!(await exists(tag))) {
       log(`[tidegate] building the project's Dockerfile as ${tag}\n`);
-      if ((await sh_(`docker build -q -t ${tag} .`, work)).code !== 0) throw new CliError("docker build failed");
+      if ((await sh_(`docker build -q -t ${tag} .`, work)).code !== 0) throw new CliError("TG_DOCKER", "docker build failed");
     }
     return { tag, nodePath: null };
   }
@@ -339,7 +341,7 @@ async function dockerImage(work, task, log) {
     const tag = `tidegate-env:${sha256(dockerfile + (req ? await readFile(path.join(ctx, "requirements.txt"), "utf8") : "") + (pkg ? await readFile(path.join(ctx, "package.json"), "utf8") : "")).slice(0, 16)}`;
     if (!(await exists(tag))) {
       log(`[tidegate] building ${tag} from ${base} with the project's dependencies\n`);
-      if ((await sh_(`docker build -q -t ${tag} .`, ctx)).code !== 0) throw new CliError("installing dependencies in the image failed");
+      if ((await sh_(`docker build -q -t ${tag} .`, ctx)).code !== 0) throw new CliError("TG_DOCKER", "installing dependencies in the image failed");
     }
     return { tag, nodePath: pkg ? "/deps/node_modules" : null };
   } finally {
@@ -381,7 +383,7 @@ async function runTask(task, token, say, isolate = "none") {
       bin = await pythonEnv(work, append);
       if (existsSync(path.join(work, "package.json"))) {
         const r = await sh("npm install --no-audit --no-fund --silent", { cwd: work, env: { PATH: process.env.PATH, HOME: work }, timeoutSec: 600, onOutput: (b) => append(b.toString()) });
-        if (r.code !== 0) throw new CliError("npm install failed");
+        if (r.code !== 0) throw new CliError("TG_INSTALL_FAILED", "npm install failed");
       }
     }
     const gw = task.gateway ? `${agentApi(isolate)}/gw/${task.gateway}` : null;
@@ -468,10 +470,10 @@ async function runTask(task, token, say, isolate = "none") {
 
 async function runner({ once = false, isolate = process.env.TIDEGATE_ISOLATE ?? "none" } = {}) {
   const token = process.env.RUNNER_TOKEN;
-  if (!token) throw new CliError("set RUNNER_TOKEN to the Tidegate worker's runner token");
-  if (!["none", "docker"].includes(isolate)) throw new CliError("--isolate is none or docker");
+  if (!token) throw new CliError("TG_NO_RUNNER_TOKEN", "set RUNNER_TOKEN to the Tidegate worker's runner token");
+  if (!["none", "docker"].includes(isolate)) throw new CliError("TG_BAD_ISOLATE", "--isolate is none or docker");
   if (isolate === "docker" && (await sh("docker info", { cwd: homedir(), env: process.env, timeoutSec: 30, onOutput: () => {} })).code !== 0) {
-    throw new CliError("--isolate docker needs a running Docker (docker info failed)");
+    throw new CliError("TG_NO_DOCKER", "--isolate docker needs a running Docker (docker info failed)");
   }
   console.log(`Runner on ${API}${isolate === "docker" ? ", each run in a container" : ""}${once ? " (one pass)" : ""}`);
   for (;;) {
@@ -510,7 +512,7 @@ async function dev({ port = 8787, isolate = "none" } = {}) {
   const state = path.join(dir, "state");
   const quiet = { cwd: ROOT, env: process.env, timeoutSec: 300, onOutput: () => {} };
   const schema = await sh(`${wrangler} d1 execute tidegate --local --persist-to ${quote(state)} --file worker/schema.sql`, quiet);
-  if (schema.code !== 0) throw new CliError("could not create the local database (wrangler d1 execute failed)");
+  if (schema.code !== 0) throw new CliError("TG_DB_FAILED", "could not create the local database (wrangler d1 execute failed)");
   const server = spawn("sh", ["-c", `${wrangler} dev --port ${port} --persist-to ${quote(state)} --env-file ${quote(envFile)} --var PORT:${port}`],
     { cwd: ROOT, env: process.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
   let serverLog = "";
@@ -528,8 +530,8 @@ async function dev({ port = 8787, isolate = "none" } = {}) {
   process.on("exit", stop);
   const api = `http://localhost:${port}`;
   for (const until = Date.now() + 90_000; ; await new Promise((r) => setTimeout(r, 500))) {
-    if (server.exitCode != null) throw new CliError(`the local Worker stopped:\n${serverLog.slice(-2000)}`);
-    if (Date.now() > until) throw new CliError(`the local Worker did not start in 90 seconds:\n${serverLog.slice(-2000)}`);
+    if (server.exitCode != null) throw new CliError("TG_WORKER_STOPPED", `the local Worker stopped:\n${serverLog.slice(-2000)}`);
+    if (Date.now() > until) throw new CliError("TG_WORKER_TIMEOUT", `the local Worker did not start in 90 seconds:\n${serverLog.slice(-2000)}`);
     if (await fetch(`${api}/api/validate`, { method: "POST", body: "{}" }).then((r) => r.ok).catch(() => false)) break;
   }
   console.log(`Tidegate is running on ${api}
@@ -584,7 +586,7 @@ async function mcp() {
         else if (msg.params.name === "invoke") lines.push(JSON.stringify(await invokeAgent(a.name, a.agent, a.input), null, 1));
         else if (msg.params.name === "status") lines.push(JSON.stringify(await call("GET", `/api/projects/${a.name}`, { token: await tokenFor(a.name) }), null, 1));
         else if (msg.params.name === "runs") await showRuns(a.name, log);
-        else throw new CliError(`unknown tool ${msg.params.name}`);
+        else throw new CliError("TG_UNKNOWN_TOOL", `unknown tool ${msg.params.name}`);
         reply({ content: [{ type: "text", text: lines.join("\n") }] });
       } catch (e) {
         reply({ content: [{ type: "text", text: [...lines, e.message].join("\n") }], isError: true });
@@ -643,10 +645,10 @@ async function main(argv) {
   if (cmd === undefined || ["help", "--help", "-h"].includes(cmd)) return console.log(USAGE);
   if (!COMMANDS.includes(cmd)) {
     const near = COMMANDS.find((c) => distance(c, cmd) <= 2);
-    throw new CliError(`unknown command "${cmd}"${near ? `; did you mean "tidegate ${near}"?` : ""}\nRun tidegate --help for the list.`, 2);
+    throw new CliError("TG_USAGE", `unknown command "${cmd}"${near ? `; did you mean "tidegate ${near}"?` : ""}\nRun tidegate --help for the list.`, 2);
   }
   const bad = rest.find((a) => a.startsWith("--") && !FLAGS.includes(a));
-  if (bad) throw new CliError(`unknown option ${bad} for tidegate ${cmd}\nRun tidegate --help for the options.`, 2);
+  if (bad) throw new CliError("TG_USAGE", `unknown option ${bad} for tidegate ${cmd}\nRun tidegate --help for the options.`, 2);
   const name = flag("--name");
   const here = async () => projectName(".", name);
   switch (cmd) {
@@ -815,7 +817,7 @@ async function main(argv) {
 
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("/tidegate")) {
   main(process.argv.slice(2)).catch((e) => {
-    console.error(e instanceof CliError ? `tidegate: ${e.message}` : e.stack);
+    console.error(e instanceof CliError ? `tidegate: ${e.slug}: ${e.message}` : e.stack);
     process.exit(e instanceof CliError ? e.code : 1);
   });
 }
